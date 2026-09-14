@@ -78,21 +78,28 @@ public final class WechatHook implements IXposedHookLoadPackage {
                         mainHandler = new Handler(Looper.getMainLooper());
                         hookMessenger = new Messenger(new HookHandler());
                         String installedVersion = installedWechatVersion();
-                        if (!Wechat8070Adapter.TARGET_VERSION.equals(installedVersion)) {
+                        boolean isSupported = Wechat8070Adapter.TARGET_VERSION.equals(installedVersion)
+                                || "8.0.78".equals(installedVersion);
+                        if (!isSupported) {
                             log("inactive: expected WeChat "
                                     + Wechat8070Adapter.TARGET_VERSION
-                                    + " but found " + installedVersion);
+                                    + " or 8.0.78 but found " + installedVersion);
                             return;
                         }
                         bindAgent();
                         try {
-                            Wechat8070Adapter.installInbound(wechatClassLoader);
-                            log("8.0.70 inbound adapter installed");
+                            if ("8.0.78".equals(installedVersion)) {
+                                Wechat8078Adapter.installInbound(wechatClassLoader);
+                                log("8.0.78 inbound adapter installed");
+                            } else {
+                                Wechat8070Adapter.installInbound(wechatClassLoader);
+                                log("8.0.70 inbound adapter installed");
+                            }
                         } catch (Throwable error) {
                             logAdapterError(
-                                    "8.0.70 inbound adapter install failed", error);
+                                    installedVersion + " inbound adapter install failed", error);
                         }
-                        log("active version=" + Wechat8070Adapter.TARGET_VERSION
+                        log("active version=" + installedVersion
                                 + " process=" + currentProcess);
                         if (isMain) {
                             mainHandler.postDelayed(
@@ -125,7 +132,9 @@ public final class WechatHook implements IXposedHookLoadPackage {
             if (parsed == null) {
                 return;
             }
-            String groupName = Wechat8070Adapter.groupNameFor(talker);
+            String groupName = "8.0.78".equals(installedWechatVersion())
+                    ? Wechat8078Adapter.groupNameFor(talker)
+                    : Wechat8070Adapter.groupNameFor(talker);
             sendCapturedText(
                     source,
                     AgentProtocol.MSG_GROUP_TEXT,
@@ -558,7 +567,11 @@ public final class WechatHook implements IXposedHookLoadPackage {
     private static void sendWechatText(String commandId, String talker, String content) {
         mainHandler.post(() -> {
             try {
-                Wechat8070Adapter.sendText(wechatClassLoader, talker, content);
+                if ("8.0.78".equals(installedWechatVersion())) {
+                    Wechat8078Adapter.sendText(wechatClassLoader, talker, content);
+                } else {
+                    Wechat8070Adapter.sendText(wechatClassLoader, talker, content);
+                }
                 sendCommandResult(commandId, true, "");
                 log("send_text accepted command=" + commandId);
             } catch (Throwable error) {
