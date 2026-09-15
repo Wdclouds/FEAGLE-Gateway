@@ -337,6 +337,60 @@ final class Wechat8078Adapter {
                     msgSvrId,
                     mentioned,
                     0L);
+            // ── 表情包解析 (type == 47) ──
+            if (type == 47 && content != null && isSend == 0) {
+                String emojiText = "[动画表情]";
+                String emojiCdn = extractXmlTag(content, "cdnurl");
+                String emojiThumb = stringFieldOrMethods(message, "field_imgPath", new String[]{"getImgPath"});
+                WechatHook.logAdapterInfo("emoji captured talker=" + talker + " thumb=" + emojiThumb);
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        isGroupTalker(talker) && quoteSender(content) != null ? quoteSender(content) + ":\n" + emojiText : emojiText,
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 位置消息 (type == 48) ──
+            if (type == 48 && content != null && isSend == 0) {
+                String label = extractXmlTag(content, "label");
+                String poiname = extractXmlTag(content, "poiname");
+                String locDesc = "[位置分享] " + (poiname != null && !poiname.isEmpty() ? poiname + " (" + label + ")" : label);
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        isGroupTalker(talker) && quoteSender(content) != null ? quoteSender(content) + ":\n" + locDesc : locDesc,
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 个人名片 (type == 42) ──
+            if (type == 42 && content != null && isSend == 0) {
+                String nickname = extractXmlTag(content, "nickname");
+                String cardDesc = "[个人名片] " + nickname;
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        isGroupTalker(talker) && quoteSender(content) != null ? quoteSender(content) + ":\n" + cardDesc : cardDesc,
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
             // ── 引用消息解析（2026-08-05 实测定案）──
             // type=822083633（0x31000031，低字节 49=appmsg），content =
             // "发送者wxid:\n<?xml...<appmsg><title>用户文字</title>...
