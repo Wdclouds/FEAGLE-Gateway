@@ -266,6 +266,7 @@ const commonWechatOptions = {
   onGroupText: async (message) => onebot.sendGroupText(message),
   onPrivateImage: async (message) => onebot.sendPrivateImage(message),
   onGroupImage: async (message) => onebot.sendGroupImage(message),
+  onNotice: async (event) => onebot.sendNotice(event),
   onSelfAvatar: async (message) => {
     try {
       controlStore.saveSelfAvatar(message);

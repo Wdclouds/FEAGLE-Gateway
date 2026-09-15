@@ -167,6 +167,9 @@ public final class BridgeForegroundService extends Service {
                 case AgentProtocol.MSG_SELF_AVATAR:
                     forwardSelfAvatar(message.getData());
                     break;
+                case AgentProtocol.MSG_NOTICE_EVENT:
+                    forwardNoticeEvent(message.getData());
+                    break;
                 case AgentProtocol.MSG_COMMAND_RESULT:
                     forwardCommandResult(message.getData());
                     break;
@@ -237,6 +240,28 @@ public final class BridgeForegroundService extends Service {
         put(event, "msgId", data.getLong("msg_id", 0));
         put(event, "msgSvrId", data.getLong("msg_svr_id", 0));
         recentInboundEvents.put(eventId, Boolean.TRUE);
+        sendOrQueueTransient(event.toString());
+    }
+
+    private void forwardNoticeEvent(Bundle data) {
+        String eventId = data.getString("event_id", "").trim();
+        String noticeType = data.getString("notice_type", "").trim();
+        String talker = data.getString("talker", "").trim();
+        if (eventId.isEmpty() || noticeType.isEmpty()) return;
+
+        JSONObject event = baseEnvelope("notice_event");
+        put(event, "eventId", eventId);
+        put(event, "noticeType", noticeType);
+        put(event, "talker", talker);
+        put(event, "fromUser", data.getString("from_user", ""));
+        put(event, "targetUser", data.getString("target_user", ""));
+        put(event, "template", data.getString("template", ""));
+        put(event, "operator", data.getString("operator", ""));
+        put(event, "msgSvrId", data.getLong("msg_svr_id", 0));
+        put(event, "createTime", data.getLong("create_time", System.currentTimeMillis()));
+
+        recentInboundEvents.put(eventId, Boolean.TRUE);
+        recordInboundStat();
         sendOrQueueTransient(event.toString());
     }
 

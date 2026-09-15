@@ -367,6 +367,21 @@ export class OneBotClient {
     return pendingId;
   }
 
+  async sendNotice(noticeData) {
+    await this.waitForConnection();
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      throw new Error('AstrBot OneBot WebSocket 未连接');
+    }
+    const event = {
+      time: Math.floor(Date.now() / 1000),
+      self_id: Number(this.selfId),
+      post_type: 'notice',
+      ...noticeData,
+    };
+    this.sendEvent(event);
+    this.state.increment('forwarded');
+  }
+
   waitForConnection() {
     if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
     if (this.stopping) {

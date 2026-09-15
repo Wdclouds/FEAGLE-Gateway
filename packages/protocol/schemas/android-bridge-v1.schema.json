@@ -11,7 +11,7 @@
         "pair_request", "pair_ack", "pair_rejected",
         "hello", "hello_ack", "heartbeat", "pong", "hook_status",
         "private_text", "group_text", "event_ack", "event_nack",
-        "send_text", "command_result"
+        "send_text", "command_result", "notice_event"
       ]
     },
     "deviceId": { "type": "string", "minLength": 1, "maxLength": 128 },

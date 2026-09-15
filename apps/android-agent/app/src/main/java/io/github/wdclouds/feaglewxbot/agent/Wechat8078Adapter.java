@@ -51,6 +51,7 @@ final class Wechat8078Adapter {
                 addMsgClass,
                 "storage-dispatcher");
         installed += hookLegacyStoragePaths(classLoader, messageClass);
+        installed += hookSysCmdExtension(classLoader);
         installed += hookContactEntity(classLoader);
         if (installed == 0) {
             throw new NoSuchMethodException("No documented 8.0.70 inbound path found");
@@ -191,6 +192,75 @@ final class Wechat8078Adapter {
             installed++;
         }
         return installed;
+    }
+
+    
+    private static int hookSysCmdExtension(ClassLoader classLoader) {
+        try {
+            Class<?> fdClass = XposedHelpers.findClass("b41.fd", classLoader);
+            Class<?> p0Class = XposedHelpers.findClass("com.tencent.mm.modelbase.p0", classLoader);
+            Method kMethod = null;
+            for (Method m : fdClass.getDeclaredMethods()) {
+                if ("k".equals(m.getName()) && m.getParameterTypes().length == 1 && compatible(m.getParameterTypes()[0], p0Class)) {
+                    kMethod = m;
+                    break;
+                }
+            }
+            if (kMethod != null) {
+                kMethod.setAccessible(true);
+                XposedBridge.hookMethod(kMethod, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        try {
+                            Object p0Obj = param.args[0];
+                            if (p0Obj != null) {
+                                Object k4Obj = XposedHelpers.getObjectField(p0Obj, "a");
+                                if (k4Obj != null) {
+                                    Object q16Obj = XposedHelpers.getObjectField(k4Obj, "h");
+                                    if (q16Obj != null) {
+                                        String msgContent = (String) XposedHelpers.callStaticMethod(
+                                                XposedHelpers.findClass("x91.j1", classLoader),
+                                                "g",
+                                                q16Obj);
+                                        if (msgContent != null && msgContent.contains("type=") && msgContent.contains("pat")) {
+                                            String fromUser = extractXmlTag(msgContent, "fromusername");
+                                            String chatUser = extractXmlTag(msgContent, "chatusername");
+                                            String pattedUser = extractXmlTag(msgContent, "pattedusername");
+                                            String template = extractXmlTag(msgContent, "template");
+                                            if (fromUser != null && !fromUser.isEmpty() && chatUser != null && !chatUser.isEmpty()) {
+                                                long createTime = System.currentTimeMillis();
+                                                WechatHook.captureNotice("sysmsg-pat", "poke", chatUser, fromUser, pattedUser != null ? pattedUser : "", template != null ? template : "", fromUser, 0, createTime);
+                                            }
+                                        } else if (msgContent != null && msgContent.contains("revokemsg")) {
+                                            String session = extractXmlTag(msgContent, "session");
+                                            String newMsgIdStr = extractXmlTag(msgContent, "newmsgid");
+                                            String replaceMsg = extractXmlTag(msgContent, "replacemsg");
+                                            if (session != null && !session.isEmpty()) {
+                                                long createTime = System.currentTimeMillis();
+                                                long msgSvrId = 0;
+                                                try {
+                                                    if (newMsgIdStr != null && !newMsgIdStr.isEmpty()) {
+                                                        msgSvrId = Long.parseLong(newMsgIdStr);
+                                                    }
+                                                } catch (Throwable ignored) {}
+                                                WechatHook.captureNotice("sysmsg-revoke", "recall", session, session, "", replaceMsg != null ? replaceMsg : "", session, msgSvrId, createTime);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Throwable t) {
+                            WechatHook.logAdapterError("syscmd-k-pat-hook", t);
+                        }
+                    }
+                });
+                return 1;
+            }
+            return 0;
+        } catch (Throwable error) {
+            WechatHook.logAdapterError("hookSysCmdExtension", error);
+            return 0;
+        }
     }
 
     private static boolean matchesStorageMethod(String name) {

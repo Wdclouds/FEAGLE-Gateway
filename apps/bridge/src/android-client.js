@@ -125,6 +125,7 @@ export class AndroidWechatClient {
     onGroupText = async () => {},
     onPrivateImage = async () => {},
     onGroupImage = async () => {},
+    onNotice = async () => {},
     onSelfAvatar = async () => {},
     host = process.env.ANDROID_WS_HOST || '0.0.0.0',
     port = positiveInteger(process.env.ANDROID_WS_PORT, 6191),
@@ -183,6 +184,7 @@ export class AndroidWechatClient {
     this.onGroupText = onGroupText;
     this.onPrivateImage = onPrivateImage;
     this.onGroupImage = onGroupImage;
+    this.onNotice = onNotice;
     this.onSelfAvatar = onSelfAvatar;
     this.host = host;
     this.port = port;
@@ -408,6 +410,9 @@ export class AndroidWechatClient {
         break;
       case 'group_image':
         await this.handleGroupImage(socket, message);
+        break;
+      case 'notice_event':
+        await this.handleNoticeEvent(socket, message);
         break;
       case 'self_avatar':
         this.state.setSelfAvatar(message);
@@ -913,6 +918,72 @@ export class AndroidWechatClient {
       this.nack(socket, eventId, 3_000, error?.code || 'forward_failed');
     } finally {
       this.processingEvents.delete(receiptId);
+    }
+  }
+
+  async handleNoticeEvent(socket, message) {
+    const eventId = String(message.eventId || '').trim();
+    const subType = String(message.noticeType || '').trim();
+    const talker = String(message.talker || '').trim();
+
+    try {
+      if (subType === 'poke') {
+        const fromUser = String(message.fromUser || '').trim();
+        const targetUser = String(message.targetUser || '').trim();
+        const isGroup = talker.endsWith('@chatroom');
+
+        if (isGroup) {
+          const groupId = this.idMap.entity('group', talker, talker, 'Android group');
+          const userId = this.idMap.entity('group_member', fromUser, fromUser, fromUser);
+          const targetId = this.idMap.entity('group_member', targetUser, targetUser, targetUser);
+          await this.onNotice?.({
+            notice_type: 'notify',
+            sub_type: 'poke',
+            group_id: Number(groupId),
+            user_id: Number(userId),
+            target_id: Number(targetId),
+            raw_info: message.template || '',
+          });
+        } else {
+          const userId = this.idMap.entity('user', fromUser, fromUser, fromUser);
+          const targetId = this.idMap.entity('user', targetUser, targetUser, targetUser);
+          await this.onNotice?.({
+            notice_type: 'notify',
+            sub_type: 'poke',
+            user_id: Number(userId),
+            target_id: Number(targetId),
+            sender_id: Number(userId),
+            raw_info: message.template || '',
+          });
+        }
+      } else if (subType === 'recall') {
+        const isGroup = talker.endsWith('@chatroom');
+        const operator = String(message.operator || talker).trim();
+        const msgId = Number(message.msgSvrId || 0);
+
+        if (isGroup) {
+          const groupId = this.idMap.entity('group', talker, talker, 'Android group');
+          const userId = this.idMap.entity('group_member', operator, operator, operator);
+          await this.onNotice?.({
+            notice_type: 'group_recall',
+            group_id: Number(groupId),
+            user_id: Number(userId),
+            operator_id: Number(userId),
+            message_id: msgId,
+          });
+        } else {
+          const userId = this.idMap.entity('user', operator, operator, operator);
+          await this.onNotice?.({
+            notice_type: 'friend_recall',
+            user_id: Number(userId),
+            message_id: msgId,
+          });
+        }
+      }
+      this.ack(socket, eventId);
+    } catch (error) {
+      this.state.addError('android-notice-forward', error);
+      this.nack(socket, eventId, 3_000, error?.code || 'forward_failed');
     }
   }
 

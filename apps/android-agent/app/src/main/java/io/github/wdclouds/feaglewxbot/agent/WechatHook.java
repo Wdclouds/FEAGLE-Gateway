@@ -241,6 +241,56 @@ public final class WechatHook implements IXposedHookLoadPackage {
         worker.start();
     }
 
+    
+    static void capturePatFromMap(java.util.Map<?, ?> map) {
+        if (map == null) return;
+        try {
+            String chatUser = String.valueOf(map.get(".sysmsg.pat.chatusername"));
+            String fromUser = String.valueOf(map.get(".sysmsg.pat.fromusername"));
+            String pattedUser = String.valueOf(map.get(".sysmsg.pat.pattedusername"));
+            String template = String.valueOf(map.get(".sysmsg.pat.template"));
+            long createTime = System.currentTimeMillis();
+            captureNotice("sysmsg-pat", "poke", chatUser, fromUser, pattedUser, template, fromUser, 0, createTime);
+        } catch (Throwable t) {
+            logError("capturePatFromMap error", t);
+        }
+    }
+
+    static void captureNotice(
+            String source,
+            String noticeType,
+            String talker,
+            String fromUser,
+            String targetUser,
+            String template,
+            String operator,
+            long msgSvrId,
+            long createTime) {
+        String eventId = eventId(talker, noticeType + ":" + msgSvrId + ":" + template, createTime, msgSvrId, msgSvrId);
+        synchronized (recentEvents) {
+            if (recentEvents.containsKey(eventId)) {
+                return;
+            }
+            recentEvents.put(eventId, Boolean.TRUE);
+        }
+
+        Bundle data = new Bundle();
+        data.putString("event_id", eventId);
+        data.putString("notice_type", noticeType);
+        data.putString("talker", talker);
+        data.putString("from_user", fromUser);
+        data.putString("target_user", targetUser);
+        data.putString("template", template);
+        data.putString("operator", operator);
+        data.putLong("msg_svr_id", msgSvrId);
+        data.putLong("create_time", createTime);
+
+        Message msg = Message.obtain(null, AgentProtocol.MSG_NOTICE_EVENT);
+        msg.setData(data);
+        sendToAgent(msg);
+        log("notice sent to agent type=" + noticeType + " talker=" + talker + " from=" + fromUser);
+    }
+
     /**
      * 解析群图发送者：8.0.70 群图片消息 content 形如 "发送者wxid:"
      * （冒号结尾、无换行正文），冒号前即发送者 wxid。
