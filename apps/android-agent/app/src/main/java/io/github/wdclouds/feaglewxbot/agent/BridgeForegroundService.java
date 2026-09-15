@@ -273,6 +273,7 @@ public final class BridgeForegroundService extends Service {
 
         String payload = event.toString();
         recentInboundEvents.put(eventId, Boolean.TRUE);
+        recordInboundStat();
         pendingEvents.put(eventId, payload);
         persistReliableState();
         sendPendingPayload(payload);
@@ -318,6 +319,7 @@ public final class BridgeForegroundService extends Service {
 
         String payload = event.toString();
         recentInboundEvents.put(eventId, Boolean.TRUE);
+        recordInboundStat();
         pendingEvents.put(eventId, payload);
         persistReliableState();
         sendPendingPayload(payload);
@@ -544,12 +546,23 @@ public final class BridgeForegroundService extends Service {
         stopSocket();
     }
 
+    private void recordInboundStat() {
+        int count = prefs.getInt("stat_inbound_count", 0) + 1;
+        prefs.edit()
+                .putInt("stat_inbound_count", count)
+                .putLong("stat_last_inbound_time", System.currentTimeMillis())
+                .apply();
+    }
+
     private void acknowledgeEvent(String eventIdValue) {
         String eventId = eventIdValue == null ? "" : eventIdValue.trim();
         if (eventId.isEmpty() || pendingEvents.remove(eventId) == null) return;
         Runnable retry = retryTasks.remove(eventId);
         if (retry != null) mainHandler.removeCallbacks(retry);
         persistReliableState();
+
+        int ackCount = prefs.getInt("stat_ack_count", 0) + 1;
+        prefs.edit().putInt("stat_ack_count", ackCount).apply();
     }
 
     private void retryEvent(String eventIdValue, long requestedDelayMs) {
@@ -597,6 +610,11 @@ public final class BridgeForegroundService extends Service {
         message.setData(data);
         try {
             sender.send(message);
+            int sentCount = prefs.getInt("stat_outbound_count", 0) + 1;
+            prefs.edit()
+                    .putInt("stat_outbound_count", sentCount)
+                    .putLong("stat_last_outbound_time", System.currentTimeMillis())
+                    .apply();
         } catch (RemoteException error) {
             if (sender == notificationMessenger) {
                 notificationMessenger = null;
