@@ -287,13 +287,7 @@ final class Wechat8078Adapter {
                     }
                     // 群聊：captureTextFields 的 parseGroupText 要求
                     // "发送者:\n正文" 格式——从 content 前缀提取发送者拼回。
-                    String quoteContent = title;
-                    if (isGroupTalker(talker)) {
-                        String qSender = quoteSender(content);
-                        if (qSender != null && !qSender.isEmpty()) {
-                            quoteContent = qSender + ":\n" + title;
-                        }
-                    }
+                    String quoteContent = formatQuoteContent(talker, content, title);
                     WechatHook.captureTextFields(
                             "wechat-8.0.78/" + source + "/quote",
                             1,
@@ -1490,6 +1484,29 @@ final class Wechat8078Adapter {
     }
 
     /** 从群聊 content 前缀提取发送者（"发送者wxid:" 冒号前截取）。 */
+        private static String formatQuoteContent(String talker, String rawContent, String title) {
+        String refermsg = extractXmlTag(rawContent, "refermsg");
+        String quotePrefix = "";
+        if (refermsg != null && !refermsg.isEmpty()) {
+            String refUser = extractXmlTag(refermsg, "displayname");
+            if (refUser == null || refUser.isEmpty()) {
+                refUser = extractXmlTag(refermsg, "fromusr");
+            }
+            String refContent = extractXmlTag(refermsg, "content");
+            if (refUser != null && !refUser.isEmpty() && refContent != null && !refContent.isEmpty()) {
+                quotePrefix = "[\u5f15\u7528 \"" + refUser.trim() + ": " + refContent.trim() + "\"] ";
+            }
+        }
+        String fullContent = quotePrefix + (title != null ? title.trim() : "");
+        if (isGroupTalker(talker)) {
+            String qSender = quoteSender(rawContent);
+            if (qSender != null && !qSender.isEmpty()) {
+                return qSender + ":\n" + fullContent;
+            }
+        }
+        return fullContent;
+    }
+
     private static String quoteSender(String content) {
         if (content == null || content.isEmpty()) {
             return "";
