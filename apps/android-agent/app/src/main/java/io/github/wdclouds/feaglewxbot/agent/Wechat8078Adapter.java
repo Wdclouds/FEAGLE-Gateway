@@ -543,29 +543,46 @@ final class Wechat8078Adapter {
             String contentValue) {
         try {
             ClassLoader cl = message.getClass().getClassLoader();
-            Class<?> b05c = Class.forName("b05.c", false, cl);
-            java.lang.reflect.Method factory = null;
-            for (java.lang.reflect.Method m2 : b05c.getDeclaredMethods()) {
-                if (m2.getName().equals("a") && m2.getParameterCount() == 1
-                        && m2.getReturnType().getName().contains("fx4")) {
-                    factory = m2;
-                    break;
+            String aeskey = null;
+            String bigUrl = null;
+            String md5 = null;
+            long length = 0;
+            try {
+                Class<?> b05c = Class.forName("b05.c", false, cl);
+                for (java.lang.reflect.Method m2 : b05c.getDeclaredMethods()) {
+                    if (m2.getName().equals("a") && m2.getParameterCount() == 1
+                            && m2.getReturnType().getName().contains("fx4")) {
+                        m2.setAccessible(true);
+                        Object info = m2.invoke(null, message);
+                        if (info != null) {
+                            aeskey = stringGetter(info, "j");
+                            bigUrl = stringGetter(info, "q");
+                            md5 = stringGetter(info, "x");
+                            length = longGetter(info, "getLength");
+                            break;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            if (aeskey == null || bigUrl == null || aeskey.isEmpty() || bigUrl.isEmpty()) {
+                if (contentValue != null && contentValue.contains("<img")) {
+                    int imgStart = contentValue.indexOf("<img");
+                    int imgEnd = contentValue.indexOf('>', imgStart);
+                    if (imgEnd > imgStart) {
+                        String imgTag = contentValue.substring(imgStart, imgEnd);
+                        aeskey = extractXmlAttr(imgTag, "aeskey");
+                        bigUrl = extractXmlAttr(imgTag, "cdnbigimgurl");
+                        if (bigUrl == null || bigUrl.isEmpty()) {
+                            bigUrl = extractXmlAttr(imgTag, "cdnmidimgurl");
+                        }
+                        md5 = extractXmlAttr(imgTag, "md5");
+                        try {
+                            length = Long.parseLong(extractXmlAttr(imgTag, "length"));
+                        } catch (Throwable ignored) {}
+                    }
                 }
             }
-            if (factory == null) {
-                WechatHook.logAdapterInfo("[ORIG] b05.c.a not found");
-                return null;
-            }
-            factory.setAccessible(true);
-            Object info = factory.invoke(null, message);
-            if (info == null) {
-                WechatHook.logAdapterInfo("[ORIG] factory null");
-                return null;
-            }
-            String aeskey = stringGetter(info, "j");
-            String bigUrl = stringGetter(info, "q");
-            String md5 = stringGetter(info, "x");
-            long length = longGetter(info, "getLength");
             if (aeskey == null || bigUrl == null || aeskey.isEmpty()
                     || bigUrl.isEmpty()) {
                 WechatHook.logAdapterInfo("[ORIG] missing aeskey/url");
