@@ -339,10 +339,22 @@ final class Wechat8078Adapter {
                     0L);
             // ── 表情包解析 (type == 47) ──
             if (type == 47 && content != null && isSend == 0) {
-                String emojiText = "[动画表情]";
-                String emojiCdn = extractXmlTag(content, "cdnurl");
+                String emojiCdn = extractXmlAttr(content, "cdnurl");
+                if (emojiCdn.isEmpty()) {
+                    emojiCdn = extractXmlAttr(content, "thumburl");
+                }
+                if (emojiCdn.isEmpty()) {
+                    String md5 = extractXmlAttr(content, "md5");
+                    if (!md5.isEmpty()) {
+                        emojiCdn = "http://emoji.qpic.cn/wx_emoji/" + md5 + "/";
+                    }
+                }
+                if (!emojiCdn.isEmpty()) {
+                    emojiCdn = emojiCdn.replace("http*#*//", "http://").replace("&amp;", "&");
+                }
+                String emojiText = !emojiCdn.isEmpty() ? "[CQ:image,file=" + emojiCdn + "]" : "[动画表情]";
                 String emojiThumb = stringFieldOrMethods(message, "field_imgPath", new String[]{"getImgPath"});
-                WechatHook.logAdapterInfo("emoji captured talker=" + talker + " thumb=" + emojiThumb);
+                WechatHook.logAdapterInfo("emoji converted to CQ: " + emojiText);
                 WechatHook.captureTextFields(
                         "wechat-8.0.78/" + source,
                         1,
