@@ -288,6 +288,12 @@ export class AndroidWechatClient {
           return;
         }
         const supplied = bearerToken(req.headers.authorization);
+        console.log('[Android WS verify]', {
+          url: req.url,
+          supplied: supplied ? supplied.slice(0, 8) + '...' : null,
+          expected: this.token ? this.token.slice(0, 8) + '...' : null,
+          match: secureEqual(supplied, this.token)
+        });
         if (secureEqual(supplied, this.token)) {
           req.feagleAuth = { pairingOnly: false, deviceId: '' };
           done(true);

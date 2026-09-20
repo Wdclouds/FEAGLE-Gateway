@@ -382,7 +382,7 @@ public final class BridgeForegroundService extends Service {
     private void sendPendingPayload(String payload) {
         if (socket == null || !socket.isOpen()) return;
         try {
-            socket.send(payload);
+            socket.send(payload); LogCollector.log("SEND", payload.length() > 80 ? payload.substring(0, 80) + "..." : payload);
         } catch (RuntimeException error) {
             Log.w(TAG, "Reliable event send failed: "
                     + error.getClass().getSimpleName());
@@ -391,7 +391,7 @@ public final class BridgeForegroundService extends Service {
 
     private void sendOrQueueTransient(String payload) {
         if (socket != null && socket.isOpen()) {
-            socket.send(payload);
+            socket.send(payload); LogCollector.log("SEND", payload.length() > 80 ? payload.substring(0, 80) + "..." : payload);
             return;
         }
         if (transientQueue.size() >= MAX_TRANSIENT_QUEUE) {
@@ -430,7 +430,7 @@ public final class BridgeForegroundService extends Service {
                     new Draft_6455(), headers, 20_000) {
                 @Override
                 public void onOpen(ServerHandshake handshake) {
-                    Log.i(TAG, "WebSocket onOpen");
+                    Log.i(TAG, "WebSocket onOpen"); LogCollector.log("WS", "WebSocket 连接成功 (onOpen)");
                     mainHandler.post(() -> {
                         if (BridgeForegroundService.this.socket != this) return;
                         reconnectAttempt = 0;
@@ -467,7 +467,7 @@ public final class BridgeForegroundService extends Service {
 
                 @Override
                 public void onClose(int code, String reason, boolean remote) {
-                    Log.w(TAG, "WebSocket onClose code=" + code
+                    LogCollector.log("WS", "WebSocket 断开 code=" + code + " reason=" + reason); Log.w(TAG, "WebSocket onClose code=" + code
                             + " reason=" + reason);
                     mainHandler.post(() -> {
                         if (BridgeForegroundService.this.socket != this) return;
@@ -480,7 +480,7 @@ public final class BridgeForegroundService extends Service {
                 @Override
                 public void onError(Exception error) {
                     if (BridgeForegroundService.this.socket != this) return;
-                    Log.w(TAG, "WebSocket error: "
+                    LogCollector.log("ERR", "WebSocket 异常: " + error.getMessage()); Log.w(TAG, "WebSocket error: "
                             + error.getClass().getSimpleName());
                 }
             };
