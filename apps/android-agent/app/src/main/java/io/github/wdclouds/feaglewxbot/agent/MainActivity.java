@@ -221,7 +221,7 @@ public class MainActivity extends Activity {
         addDivider(layout, 16);
 
         // 2. Core Topology Status Badges
-        TextView topoTitle = createSectionHeader("链路健康状态 / PIPELINE HEALTH");
+        TextView topoTitle = createSectionHeader("链路健康状态");
         layout.addView(topoTitle);
 
         LinearLayout badgesRow = new LinearLayout(this);
@@ -246,7 +246,7 @@ public class MainActivity extends Activity {
         addDivider(layout, 16);
 
         // 3. IP & Gateway Routing Section
-        TextView netTitle = createSectionHeader("网络与网关路由 / NETWORK & GATEWAY");
+        TextView netTitle = createSectionHeader("网络与网关路由");
         layout.addView(netTitle);
 
         LinearLayout netBox = new LinearLayout(this);
@@ -265,7 +265,7 @@ public class MainActivity extends Activity {
 
         // Gateway configuration input
         TextView configLabel = new TextView(this);
-        configLabel.setText("修改网关接入点 / Endpoint URL:");
+        configLabel.setText("修改网关接入点:");
         configLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         configLabel.setTextColor(COLOR_TEXT_SEC);
         configLabel.setPadding(0, dp(12), 0, dp(6));
@@ -325,7 +325,7 @@ public class MainActivity extends Activity {
         addDivider(layout, 16);
 
         // 4. Live Telemetry
-        TextView teleTitle = createSectionHeader("实时吞吐指标 / TELEMETRY");
+        TextView teleTitle = createSectionHeader("实时吞吐指标");
         layout.addView(teleTitle);
 
         LinearLayout teleBox = new LinearLayout(this);
@@ -347,7 +347,7 @@ public class MainActivity extends Activity {
         addDivider(layout, 16);
 
         // 5. Actions Row
-        TextView actTitle = createSectionHeader("快捷运维 / QUICK ACTIONS");
+        TextView actTitle = createSectionHeader("快捷运维");
         layout.addView(actTitle);
 
         LinearLayout actionRow = new LinearLayout(this);
@@ -519,8 +519,8 @@ public class MainActivity extends Activity {
     // State Refresh Logic
     // ==========================================
     private void updateOverviewState() {
-        String status = prefs.getString(AgentProtocol.KEY_STATUS, "未启动 / stopped");
-        String hook = prefs.getString(AgentProtocol.KEY_HOOK_STATUS, "未连接 / disconnected");
+        String status = prefs.getString(AgentProtocol.KEY_STATUS, "未启动");
+        String hook = prefs.getString(AgentProtocol.KEY_HOOK_STATUS, "未连接");
         String endpoint = prefs.getString(AgentProtocol.KEY_ENDPOINT, "ws://127.0.0.1:6191/android");
 
         boolean serviceRunning = isBridgeServiceRunning();
