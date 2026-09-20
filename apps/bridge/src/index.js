@@ -3,7 +3,6 @@ import { DashboardServer } from './dashboard.js';
 import { IdMap } from './id-map.js';
 import { AndroidWechatClient } from './android-client.js';
 import { OneBotClient } from './onebot-client.js';
-import { FeishuBindingClient, loadFeishuBinding } from './feishu-binding.js';
 import {
   PersistentControlState,
   WECHAT_ADMIN_MODES,
@@ -11,7 +10,6 @@ import {
 import { GROUP_CHAT_MODES } from './group-chat.js';
 import { BridgeSettingsStore } from './bridge-settings.js';
 import { resolveDataPath } from './paths.js';
-import { MnemosyneClient } from './mnemosyne-client.js';
 import os from 'node:os';
 
 function positiveInteger(value, fallback) {
@@ -81,10 +79,18 @@ if (transport !== 'android') {
   state.patch('android', { serverStatus: 'DISABLED' });
 }
 
+const idMap = new IdMap();
+idMap.pruneMessageReceipts();
+try {
+  state.restoreGroups(idMap.listGroups());
+} catch (error) {
+  state.addError('idmap-list-groups', error);
+}
+
 const commonWechatOptions = {
   state,
   idMap,
-  isSleeping: sleeping,
+  isSleeping: () => false,
   messageGuard: null,
   initialAdminMode: savedControl.wechatAdminMode,
   onPrivateText: async (message) => onebot.sendPrivateText(message),
@@ -118,6 +124,17 @@ const commonWechatOptions = {
 };
 
 const wechat = new AndroidWechatClient(commonWechatOptions);
+const dashboard = new DashboardServer({
+  state,
+  host: '0.0.0.0',
+  port: Number(process.env.BOT_DASHBOARD_PORT || 6190),
+  createPairingCode: (ttlMs) => wechat?.pairingStore?.createCode(ttlMs) || null,
+  setTestMode: (enabled) => state.patch('testMode', { enabled: Boolean(enabled) }),
+  getBridgeSettings: () => settingsStore.snapshot(),
+  saveBridgeSettings: (changes) => settingsStore.save(changes),
+});
+
+
 
 const bridgeSelfId = idMap.entity(
   'self',
@@ -130,14 +147,12 @@ onebot = new OneBotClient({
   idMap,
   wechat,
   selfId: bridgeSelfId,
-  isSleeping: sleeping,
+  isSleeping: () => false,
   maxInFlight: settings.maxInFlight,
   maxInFlightPerUser: settings.maxInFlightPerUser,
 });
 
-updateSchedule();
-const scheduleTimer = setInterval(updateSchedule, 30_000);
-scheduleTimer.unref();
+// quiet-hours schedule decoupled
 
 function getLanIps() {
   const nets = os.networkInterfaces();
@@ -174,7 +189,7 @@ function shutdown(signal, exitCode = 0) {
   shuttingDown = true;
   process.exitCode = exitCode;
   console.log(`[Runtime] received ${signal}, shutting down`);
-  clearInterval(scheduleTimer);
+  
   onebot.stop();
   wechat.shutdown();
   dashboard.stop();

@@ -7,7 +7,7 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 import { resolveDataPath } from './paths.js';
-import { parseQuietHours } from './quiet-hours.js';
+function parseQuietHours(raw) { return null; }
 
 export const TRANSPORTS = Object.freeze(['wechat4u', 'android']);
 
