@@ -169,7 +169,7 @@ public class MainActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("FEAGLE AGENT");
+        title.setText("BOT DRIVER");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         title.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         title.setTextColor(COLOR_TEXT_PRI);
@@ -197,7 +197,7 @@ public class MainActivity extends Activity {
         badgesRow.setPadding(0, dp(8), 0, dp(8));
 
         wechatStatusBadge = createBadge("WeChat 8.0.78", "● 检查中", COLOR_WARNING);
-        serviceStatusBadge = createBadge("Agent 服务", "● 未启动", COLOR_TEXT_SEC);
+        serviceStatusBadge = createBadge("Driver 服务", "● 未启动", COLOR_TEXT_SEC);
         bridgeStatusBadge = createBadge("Bridge 网关", "● 未连接", COLOR_TEXT_SEC);
 
         LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f);
@@ -322,7 +322,7 @@ public class MainActivity extends Activity {
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
         actionRow.setPadding(0, dp(4), 0, dp(20));
 
-        startStopBtn = createStyledButton("启动 Agent 服务", COLOR_SUCCESS, true);
+        startStopBtn = createStyledButton("启动 Driver 服务", COLOR_SUCCESS, true);
         startStopBtn.setOnClickListener(v -> {
             if (isBridgeServiceRunning()) {
                 stopAgent();
@@ -497,7 +497,7 @@ public class MainActivity extends Activity {
 
         // Badges
         updateBadge(wechatStatusBadge, "WeChat 8.0.78", hookActive ? "● 正常 ACTIVE" : "● 未注入", hookActive ? COLOR_SUCCESS : COLOR_DANGER);
-        updateBadge(serviceStatusBadge, "Agent 服务", serviceRunning ? "● 运行中" : "● 已停止", serviceRunning ? COLOR_SUCCESS : COLOR_WARNING);
+        updateBadge(serviceStatusBadge, "Driver 服务", serviceRunning ? "● 运行中" : "● 已停止", serviceRunning ? COLOR_SUCCESS : COLOR_WARNING);
         updateBadge(bridgeStatusBadge, "Bridge 网关", bridgeOnline ? "● 已连通" : "● 断开", bridgeOnline ? COLOR_SUCCESS : COLOR_DANGER);
 
         // Network Info
@@ -516,10 +516,10 @@ public class MainActivity extends Activity {
 
         // Action button
         if (serviceRunning) {
-            startStopBtn.setText("⏹ 停止 Agent 服务");
+            startStopBtn.setText("⏹ 停止 Driver 服务");
             startStopBtn.setTextColor(COLOR_DANGER);
         } else {
-            startStopBtn.setText("▶ 启动 Agent 服务");
+            startStopBtn.setText("▶ 启动 Driver 服务");
             startStopBtn.setTextColor(COLOR_SUCCESS);
         }
     }
