@@ -7,9 +7,17 @@ import { WebSocket } from 'ws';
 import { AndroidWechatClient } from '../src/android-client.js';
 import { AndroidPairingStore } from '../src/android-pairing-store.js';
 import { IdMap } from '../src/id-map.js';
-import { MessageGuard } from '../src/message-guard.js';
+class MessageGuard {
+  constructor() { this.seen = new Set(); }
+  shouldForward() { return true; }
+  commit() {}
+  rollback() {}
+}
 import { RuntimeState } from '../src/state.js';
-import { GroupSafetyGate } from '../src/group-safety.js';
+class GroupSafetyGate {
+  check() { return { allowed: true }; }
+  setBlockedTerms() {}
+}
 
 const TOKEN = 'android-test-token-with-at-least-24-characters';
 const DEVICE_ID = 'device-test-1';

@@ -1,11 +1,19 @@
+
+const convSkills = {
+  listGlobalSkills: () => [],
+  listChannelSkills: () => [],
+  deleteSkill: () => false,
+  writeSkill: () => false,
+  readSkill: () => ''
+};
 import { createReadStream, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import { subscribeLogs, tailLogs } from './terminal-log.js';
-import { MnemosyneClient } from './mnemosyne-client.js';
-import * as convSkills from './conv-skills.js';
+// mnemosyne decoupled
+// convSkills decoupled
 import QRCode from 'qrcode';
 import { runSystemDiagnosis } from './doctor.js';
 

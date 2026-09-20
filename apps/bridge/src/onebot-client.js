@@ -32,6 +32,50 @@ export function extractPlainText(message) {
     .join('');
 }
 
+export function parseMessageSegments(text) {
+  if (!text || typeof text !== 'string') return [{ type: 'text', data: { text: '' } }];
+  const cqRegex = /\[CQ:([a-z_-]+)(?:,([^\]]+))?\]/gi;
+  const segments = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = cqRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({
+        type: 'text',
+        data: { text: text.slice(lastIndex, match.index) }
+      });
+    }
+
+    const type = match[1];
+    const rawParams = match[2] || '';
+    const data = {};
+
+    if (rawParams) {
+      for (const pair of rawParams.split(',')) {
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx !== -1) {
+          const k = pair.slice(0, eqIdx).trim();
+          const v = pair.slice(eqIdx + 1).trim();
+          data[k] = v;
+        }
+      }
+    }
+
+    segments.push({ type, data });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({
+      type: 'text',
+      data: { text: text.slice(lastIndex) }
+    });
+  }
+
+  return segments.length > 0 ? segments : [{ type: 'text', data: { text } }];
+}
+
 export class OneBotClient {
   constructor({
     state,
@@ -180,7 +224,7 @@ export class OneBotClient {
       sub_type: 'friend',
       message_id: 0,
       user_id: userId,
-      message: [{ type: 'text', data: { text } }],
+      message: parseMessageSegments(text),
       raw_message: text,
       font: 0,
       sender: {
@@ -227,7 +271,7 @@ export class OneBotClient {
         data: { file: `base64://${imageBase64}` },
       });
     }
-    segments.push({ type: 'text', data: { text } });
+    segments.push(...parseMessageSegments(text));
     const event = {
       time: Math.floor(Date.now() / 1000),
       self_id: this.selfId,

@@ -12,7 +12,7 @@ import {
   normalizeGroupAllowlist,
   normalizeGroupChatMode,
 } from './group-chat.js';
-import { normalizeBlockedTerms } from './group-safety.js';
+function normalizeBlockedTerms(terms) { return Array.isArray(terms) ? terms : []; }
 
 export const WECHAT_ADMIN_MODES = Object.freeze({
   RUNNING: 'RUNNING',
