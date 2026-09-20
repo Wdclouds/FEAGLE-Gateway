@@ -5,6 +5,7 @@ import android.app.ActivityManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -34,15 +35,39 @@ import java.util.Collections;
 import java.util.List;
 
 public class MainActivity extends Activity {
-    private static final int COLOR_BG = 0xFF0D1117;          // GitHub Dark
-    private static final int COLOR_SURFACE = 0xFF161B22;     // Elevated Surface
-    private static final int COLOR_BORDER = 0xFF30363D;      // Border
-    private static final int COLOR_TEXT_PRI = 0xFFF0F6FC;    // Primary Text
-    private static final int COLOR_TEXT_SEC = 0xFF8B949E;    // Secondary Text
-    private static final int COLOR_ACCENT = 0xFF58A6FF;      // Blue Accent
-    private static final int COLOR_SUCCESS = 0xFF3FB950;     // Green Success
-    private static final int COLOR_WARNING = 0xFFD29922;     // Orange Warning
-    private static final int COLOR_DANGER = 0xFFF85149;      // Red Error
+    private boolean isDarkMode;
+    private int COLOR_BG;
+    private int COLOR_SURFACE;
+    private int COLOR_BORDER;
+    private int COLOR_TEXT_PRI;
+    private int COLOR_TEXT_SEC;
+    private int COLOR_ACCENT;
+    private static final int COLOR_SUCCESS = 0xFF2DA44E;     // Green Success
+    private static final int COLOR_WARNING = 0xFFBF8700;     // Orange Warning
+    private static final int COLOR_DANGER = 0xFFCF222E;      // Red Error
+
+    private void initTheme() {
+        int nightModeFlags = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        isDarkMode = (nightModeFlags == Configuration.UI_MODE_NIGHT_YES);
+
+        if (isDarkMode) {
+            // Dark Mode (GitHub Dark)
+            COLOR_BG = 0xFF0D1117;
+            COLOR_SURFACE = 0xFF161B22;
+            COLOR_BORDER = 0xFF30363D;
+            COLOR_TEXT_PRI = 0xFFF0F6FC;
+            COLOR_TEXT_SEC = 0xFF8B949E;
+            COLOR_ACCENT = 0xFF58A6FF;
+        } else {
+            // Light Mode (GitHub Light / Clean Modern)
+            COLOR_BG = 0xFFF6F8FA;
+            COLOR_SURFACE = 0xFFFFFFFF;
+            COLOR_BORDER = 0xFFD0D7DE;
+            COLOR_TEXT_PRI = 0xFF1F2328;
+            COLOR_TEXT_SEC = 0xFF656D76;
+            COLOR_ACCENT = 0xFF0969DA;
+        }
+    }
 
     private SharedPreferences prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -85,6 +110,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        initTheme();
         prefs = getSharedPreferences(AgentProtocol.PREFS, MODE_PRIVATE);
 
         // Root vertical layout: Content + Bottom Navigation
@@ -117,6 +143,12 @@ public class MainActivity extends Activity {
 
         // Listen for log changes
         LogCollector.setChangeListener(() -> handler.post(this::updateLogView));
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        recreate();
     }
 
     @Override
