@@ -1,5 +1,7 @@
 package io.github.wdclouds.feaglewxbot.agent;
 
+import android.util.Log;
+
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.content.ClipData;
@@ -7,6 +9,8 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.Intent;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -35,6 +39,7 @@ import java.util.Collections;
 import java.util.List;
 
 public class MainActivity extends Activity {
+    private static final String TAG = "MainActivity";
     private boolean isDarkMode;
     private int COLOR_BG;
     private int COLOR_SURFACE;
@@ -154,12 +159,25 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("io.github.wdclouds.feaglewxbot.SWITCH_TAB");
+        filter.addAction("io.github.wdclouds.feaglewxbot.RESTART_WECHAT");
+        filter.addAction("io.github.wdclouds.feaglewxbot.SET_GATEWAY");
+        filter.addAction("io.github.wdclouds.feaglewxbot.TOGGLE_SERVICE");
+        filter.addAction("io.github.wdclouds.feaglewxbot.COPY_LOGS");
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(agentControlReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(agentControlReceiver, filter);
+        }
+
         handler.post(refreshStatus);
         updateLogView();
     }
 
     @Override
     protected void onPause() {
+        try { unregisterReceiver(agentControlReceiver); } catch (Exception ignored) {}
         super.onPause();
         handler.removeCallbacks(refreshStatus);
     }
@@ -272,6 +290,7 @@ public class MainActivity extends Activity {
         layout.addView(configLabel);
 
         gatewayInput = new EditText(this);
+        gatewayInput.setContentDescription("input_gateway_url");
         gatewayInput.setText(prefs.getString(AgentProtocol.KEY_ENDPOINT, "ws://127.0.0.1:6191/android"));
         gatewayInput.setTextColor(COLOR_TEXT_PRI);
         gatewayInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -284,7 +303,7 @@ public class MainActivity extends Activity {
         configBtnRow.setOrientation(LinearLayout.HORIZONTAL);
         configBtnRow.setPadding(0, dp(8), 0, dp(4));
 
-        Button saveBtn = createStyledButton("保存并重连", COLOR_ACCENT, true);
+        Button saveBtn = createStyledButton("保存并重连", "btn_save_gateway", COLOR_ACCENT, true);
         saveBtn.setOnClickListener(v -> {
             String newEndpoint = gatewayInput.getText().toString().trim();
             if (newEndpoint.isEmpty()) {
@@ -302,7 +321,7 @@ public class MainActivity extends Activity {
             updateOverviewState();
         });
 
-        Button qrBtn = createStyledButton("扫码配置", COLOR_SURFACE, false);
+        Button qrBtn = createStyledButton("扫码配置", "btn_qr_scan", COLOR_SURFACE, false);
         qrBtn.setOnClickListener(v -> {
             try {
                 Intent intent = new Intent("com.google.zxing.client.android.SCAN");
@@ -354,7 +373,7 @@ public class MainActivity extends Activity {
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
         actionRow.setPadding(0, dp(4), 0, dp(20));
 
-        startStopBtn = createStyledButton("启动 Driver 服务", COLOR_SUCCESS, true);
+        startStopBtn = createStyledButton("启动 Driver 服务", "btn_start_stop", COLOR_SUCCESS, true);
         startStopBtn.setOnClickListener(v -> {
             if (isBridgeServiceRunning()) {
                 stopAgent();
@@ -364,7 +383,7 @@ public class MainActivity extends Activity {
             updateOverviewState();
         });
 
-        Button restartWechatBtn = createStyledButton("⟳ 一键重启微信", COLOR_SURFACE, false);
+        Button restartWechatBtn = createStyledButton("⟳ 一键重启微信", "btn_restart_wechat", COLOR_SURFACE, false);
         restartWechatBtn.setOnClickListener(v -> {
             Toast.makeText(this, "正在通过 Root 重启微信进程...", Toast.LENGTH_SHORT).show();
             LogCollector.log("CMD", "发起一键重启微信 Hook 进程");
@@ -419,6 +438,7 @@ public class MainActivity extends Activity {
 
         // Floating Copy Button (Overlay Layer)
         Button copyPillBtn = new Button(this);
+        copyPillBtn.setContentDescription("btn_copy_logs");
         copyPillBtn.setText("复制近50条");
         copyPillBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         copyPillBtn.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -495,7 +515,9 @@ public class MainActivity extends Activity {
         navOverviewBtn.setLayoutParams(itemLp);
         navLogBtn.setLayoutParams(itemLp);
 
+        navOverviewBtn.setContentDescription("tab_overview");
         navOverviewBtn.setOnClickListener(v -> switchTab(0));
+        navLogBtn.setContentDescription("tab_terminal");
         navLogBtn.setOnClickListener(v -> switchTab(1));
 
         nav.addView(navOverviewBtn);
@@ -597,8 +619,10 @@ public class MainActivity extends Activity {
         return tv;
     }
 
-    private Button createStyledButton(String text, int bgColor, boolean primary) {
+    private Button createStyledButton(String text, String semanticId, int bgColor, boolean primary) {
         Button btn = new Button(this);
+        btn.setContentDescription(semanticId);
+        
         btn.setText(text);
         btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         btn.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -712,4 +736,68 @@ public class MainActivity extends Activity {
         stopService(new Intent(this, BridgeForegroundService.class));
         LogCollector.log("AGENT", "手动停止 Agent 前台服务");
     }
+
+    private final BroadcastReceiver agentControlReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null || intent.getAction() == null) return;
+            String action = intent.getAction();
+            Log.i(TAG, "Agent command received via broadcast: " + action);
+            switch (action) {
+                case "io.github.wdclouds.feaglewxbot.SWITCH_TAB":
+                    String tab = intent.getStringExtra("tab");
+                    if ("terminal".equalsIgnoreCase(tab) || "log".equalsIgnoreCase(tab)) {
+                        switchTab(1);
+                    } else {
+                        switchTab(0);
+                    }
+                    break;
+                case "io.github.wdclouds.feaglewxbot.RESTART_WECHAT":
+                    try {
+                        Runtime.getRuntime().exec(new String[]{"su", "-c", "am force-stop com.tencent.mm && monkey -p com.tencent.mm -c android.intent.category.LAUNCHER 1"});
+                        LogCollector.log("SYS", "Agent CLI: 已触发强制重启微信进程");
+                    } catch (Exception e) {
+                        LogCollector.log("ERR", "Agent CLI 重启微信失败: " + e.getMessage());
+                    }
+                    break;
+                case "io.github.wdclouds.feaglewxbot.SET_GATEWAY":
+                    String url = intent.getStringExtra("url");
+                    if (url != null && !url.trim().isEmpty()) {
+                        prefs.edit().putString(AgentProtocol.KEY_ENDPOINT, url.trim()).apply();
+                        gatewayInput.setText(url.trim());
+                        LogCollector.log("SYS", "Agent CLI: 网关已更新为 " + url.trim());
+                        if (isBridgeServiceRunning()) {
+                            stopAgent();
+                            handler.postDelayed(() -> startAgent(), 600);
+                        }
+                    }
+                    break;
+                case "io.github.wdclouds.feaglewxbot.TOGGLE_SERVICE":
+                    boolean enable = intent.getBooleanExtra("enable", !isBridgeServiceRunning());
+                    if (enable) {
+                        startAgent();
+                        LogCollector.log("SYS", "Agent CLI: Driver 服务已启动");
+                    } else {
+                        stopAgent();
+                        LogCollector.log("SYS", "Agent CLI: Driver 服务已停止");
+                    }
+                    handler.post(refreshStatus);
+                    break;
+                case "io.github.wdclouds.feaglewxbot.COPY_LOGS":
+                    copyLogsToClipboard();
+                    break;
+            }
+        }
+    };
+
+    private void copyLogsToClipboard() {
+        String logs = LogCollector.getRecent50LogsAsString();
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm != null) {
+            cm.setPrimaryClip(ClipData.newPlainText("FEAGLE_LOGS", logs));
+            Toast.makeText(this, "已复制最近 50 条日志到剪贴板", Toast.LENGTH_SHORT).show();
+            LogCollector.log("SYS", "用户/Agent 已复制最近 50 条终端日志");
+        }
+    }
+
 }
