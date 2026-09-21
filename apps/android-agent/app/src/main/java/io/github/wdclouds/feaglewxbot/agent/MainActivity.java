@@ -214,10 +214,19 @@ public class MainActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(20), dp(20), dp(20), dp(24));
 
-        // 1. Header Title
+        // 1. Header Title with Brand Logo
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
+
+        ImageView logoView = new ImageView(this);
+        int logoRes = isDarkMode ? R.drawable.ic_feagle_dark : R.drawable.ic_feagle_light;
+        logoView.setImageResource(logoRes);
+        logoView.setAdjustViewBounds(true);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(132), dp(22));
+        logoLp.setMargins(0, 0, dp(12), 0);
+        logoView.setLayoutParams(logoLp);
+        header.addView(logoView);
 
         TextView title = new TextView(this);
         title.setText("BOT DRIVER");
