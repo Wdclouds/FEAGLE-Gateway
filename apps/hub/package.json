@@ -1,0 +1,14 @@
+{
+  "name": "feagle-hub",
+  "version": "0.1.0",
+  "description": "Lightweight Hermes WeChat Hub and Multi-Group Policy Gateway",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "app": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../../tools/windows/launch-hub-app.ps1"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

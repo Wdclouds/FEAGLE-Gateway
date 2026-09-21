@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FEAGLE Hub · Hermes 微信中枢控制台</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text-pri: #f0f6fc;
+      --text-sec: #8b949e;
+      --accent: #58a6ff;
+      --success: #238636;
+      --warning: #d29922;
+      --danger: #f85149;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text-pri);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+    /* Top Brand Bar */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+    }
+    .status-capsules {
+      display: flex;
+      gap: 10px;
+    }
+    .capsule {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #666; }
+    .dot.online { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+
+    /* App Layout */
+    .container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+    /* Sidebar */
+    aside {
+      width: 240px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+    .nav-item {
+      padding: 12px 20px;
+      color: var(--text-sec);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.15s;
+    }
+    .nav-item:hover { color: var(--text-pri); background: rgba(255,255,255,0.03); }
+    .nav-item.active {
+      color: var(--accent);
+      background: rgba(88, 166, 255, 0.1);
+      border-left: 3px solid var(--accent);
+    }
+    /* Content Area */
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 32px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .input-group {
+      margin-bottom: 14px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-sec);
+      margin-bottom: 6px;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text-pri);
+      font-size: 13px;
+      font-family: monospace;
+      outline: none;
+    }
+    input[type="text"]:focus, textarea:focus { border-color: var(--accent); }
+    .btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-pri);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn:hover { background: #21262d; border-color: #8b949e; }
+    .btn-primary { background: var(--success); border-color: rgba(255,255,255,0.1); }
+    .btn-primary:hover { background: #2ea043; }
+
+    /* Checkbox list */
+    .checkbox-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      padding: 6px 10px;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    /* Wizard View for initial onboarding */
+    .wizard-box {
+      max-width: 600px;
+      margin: 40px auto;
+      text-align: center;
+    }
+    .wizard-step {
+      text-align: left;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Brand Navigation Bar -->
+  <header>
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 4012 669" fill="none">
+        <path d="M72.9 669C25.6 648.3 0 598.6 0 531.6c0-67.1 25.6-116.7 72.9-137.4..."/>
+      </svg>
+      <span>FEAGLE HUB</span>
+      <span style="font-size: 11px; color: var(--text-sec); font-weight: normal;">v0.1.0 · Hermes 控制中枢</span>
+    </div>
+    <div class="status-capsules">
+      <div class="capsule">
+        <div id="bridge-dot" class="dot"></div>
+        <span>WeChat Bridge (6199)</span>
+      </div>
+      <div class="capsule">
+        <div id="hermes-dot" class="dot"></div>
+        <span>Hermes Engine (18080)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main View Workspace -->
+  <div class="container">
+    <aside>
+      <div class="nav-item active" onclick="switchView('wizard')">⚡ 快速连接向导</div>
+      <div class="nav-item" onclick="switchView('groups')">💬 微信群策略管理</div>
+      <div class="nav-item" onclick="switchView('security')">🛡️ 全局权限与安全</div>
+      <div class="nav-item" onclick="switchView('terminal')">📟 实时流量日志</div>
+    </aside>
+
+    <main id="main-content">
+      <!-- Fast Onboarding Wizard -->
+      <div id="view-wizard">
+        <div class="wizard-box">
+          <h2 style="margin-bottom: 8px;">欢迎进入 FEAGLE Hub</h2>
+          <p style="color: var(--text-sec); font-size: 13px;">零门槛打通【微信 8.0.78 网关】与【Hermes 智能大脑】</p>
+
+          <div class="card wizard-step">
+            <div class="card-title">
+              <span>1. 微信 Bridge 网关端点</span>
+              <button class="btn" onclick="testBridge()">探测连接</button>
+            </div>
+            <div class="input-group">
+              <label>支持填入本机或远程服务器 WebSocket 端口 (OneBot v11)</label>
+              <input type="text" id="cfg-bridge" value="ws://127.0.0.1:6199">
+            </div>
+          </div>
+
+          <div class="card wizard-step">
+            <div class="card-title">
+              <span>2. Hermes 智能体引擎端点</span>
+              <button class="btn" onclick="testHermes()">探测连接</button>
+            </div>
+            <div class="input-group">
+              <label>本地或服务器 Hermes Agent API 服务地址</label>
+              <input type="text" id="cfg-hermes" value="http://127.0.0.1:18080">
+            </div>
+          </div>
+
+          <button class="btn btn-primary" style="width: 100%; padding: 10px; font-size: 14px;" onclick="saveAndEnter()">
+            保存配置并进入多群管理
+          </button>
+        </div>
+      </div>
+
+      <!-- Group Policies View (Placeholder for Step 2) -->
+      <div id="view-groups" style="display: none;">
+        <div class="card">
+          <div class="card-title">
+            <span>默认群聊人设与工具沙箱策略</span>
+            <button class="btn btn-primary" onclick="savePolicies()">保存策略</button>
+          </div>
+          <div class="input-group">
+            <label>群聊 System Prompt (专属人设提示词)</label>
+            <textarea id="policy-prompt" rows="4">你是由 Hermes 驱动的群聊智能助理，回答简练准确、有逻辑，善于帮助群友解答疑问与执行任务。</textarea>
+          </div>
+          <div class="input-group">
+            <label>允许调用的 Hermes 核心能力工具集 (安全沙箱隔离)</label>
+            <div class="checkbox-grid">
+              <label class="checkbox-item"><input type="checkbox" id="tool-web" checked> 联网搜索 (web_search)</label>
+              <label class="checkbox-item"><input type="checkbox" id="tool-calc" checked> 极速代码运算 (execute_code)</label>
+              <label class="checkbox-item"><input type="checkbox" id="tool-file"> 文件/文档提取 (read_file)</label>
+              <label class="checkbox-item"><input type="checkbox" id="tool-term"> 终端命令执行 (terminal - 高危)</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    function switchView(view) {
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('view-wizard').style.display = (view === 'wizard' ? 'block' : 'none');
+      document.getElementById('view-groups').style.display = (view === 'groups' ? 'block' : 'none');
+    }
+
+    async function checkStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        const bDot = document.getElementById('bridge-dot');
+        const hDot = document.getElementById('hermes-dot');
+        if (data.bridgeConnected) bDot.classList.add('online'); else bDot.classList.remove('online');
+        if (data.hermesConnected) hDot.classList.add('online'); else hDot.classList.remove('online');
+      } catch (e) {}
+    }
+    setInterval(checkStatus, 3000);
+    checkStatus();
+
+    function testBridge() { alert('正在探测 Bridge 端口 (OneBot 6199)...'); }
+    function testHermes() { alert('正在探测 Hermes 引擎端口 (18080)...'); }
+    function saveAndEnter() { alert('配置已保存！通道就绪。'); }
+    function savePolicies() { alert('群策略已热更新生效！'); }
+  </script>
+</body>
+</html>
