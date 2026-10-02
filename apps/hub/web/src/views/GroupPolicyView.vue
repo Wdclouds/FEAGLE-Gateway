@@ -7,7 +7,7 @@
             <span class="card-title">多群 AI 策略与权限编排矩阵</span>
             <span class="card-desc">为不同微信群独立设定人设 Prompt、响应触发条件与 AI 工具执行权限</span>
           </div>
-          <el-button type="primary" :icon="Refresh" @click="fetchGroups" :loading="loading">
+          <el-button type="primary" :icon="Refresh" @click="fetchGroups(true)" :loading="loading">
             刷新群列表
           </el-button>
         </div>
@@ -204,11 +204,17 @@ function applyTemplate(type: string) {
   }
 }
 
-async function fetchGroups() {
+async function fetchGroups(isManualRefresh = false) {
   loading.value = true;
   try {
-    const res: any = await apiClient.get('/groups');
-    groups.value = res.groups || [];
+    if (isManualRefresh) {
+      const res: any = await apiClient.post('/groups/refresh');
+      groups.value = res.groups || [];
+      ElMessage.success(res.message || `群列表已与网关同步完成，当前共纳管 ${groups.value.length} 个微信群`);
+    } else {
+      const res: any = await apiClient.get('/groups');
+      groups.value = res.groups || [];
+    }
   } catch {
     // handled
   } finally {

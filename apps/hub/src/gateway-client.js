@@ -454,3 +454,44 @@ export function sendActionToBridge(action, params = {}, timeoutMs = 5000) {
     socket.send(JSON.stringify(payload));
   });
 }
+
+/** 主动向网关拉取最新群聊列表并同步入库 */
+export async function syncGroupsFromGatewayNow() {
+  if (gatewayState.mode === 'bridge_sync') {
+    const targetUrl = gatewayState.bridgeUrl;
+    try {
+      const res = await fetch(`${targetUrl}/api/status`, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      let syncCount = 0;
+      if (data.groupChat && Array.isArray(data.groupChat.discovered)) {
+        for (const g of data.groupChat.discovered) {
+          if (g.groupId && g.name) {
+            upsertGroup(String(g.groupId), g.name, '');
+            syncCount++;
+          }
+        }
+      }
+      return { success: true, count: syncCount, mode: 'bridge_sync' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  } else if (gatewayState.mode === 'server' || gatewayState.mode === 'client') {
+    try {
+      const result = await sendActionToBridge('get_group_list', {}, 3000);
+      if (result && Array.isArray(result.data)) {
+        let syncCount = 0;
+        for (const g of result.data) {
+          if (g.group_id) {
+            upsertGroup(String(g.group_id), g.group_name || `群 ${g.group_id}`, '');
+            syncCount++;
+          }
+        }
+        return { success: true, count: syncCount, mode: 'onebot' };
+      }
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+  return { success: false, error: '网关未连接' };
+}

@@ -17,6 +17,7 @@ import { signJwt, requireAuth } from './auth.js';
 import {
   initGateway,
   sendActionToBridge,
+  syncGroupsFromGatewayNow,
   gatewayState,
   subscribeSse,
   broadcastSse,
@@ -171,6 +172,27 @@ const server = http.createServer(async (req, res) => {
     const user = requireAuth(req, res);
     if (!user) return;
     sendJson(res, 200, { groups: listGroupsWithPolicies() });
+    return;
+  }
+
+  // 3.1 主动向网关同步最新群列表
+  if (pathname === '/api/groups/refresh' && req.method === 'POST') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const syncRes = await syncGroupsFromGatewayNow();
+      const groups = listGroupsWithPolicies();
+      sendJson(res, 200, {
+        success: syncRes.success,
+        message: syncRes.success
+          ? `群列表已与网关同步完成，当前共纳管 ${groups.length} 个微信群`
+          : `同步完成 (当前纳管 ${groups.length} 个微信群，网关提示: ${syncRes.error || '暂无新增'})`,
+        count: groups.length,
+        groups,
+      });
+    } catch (err) {
+      sendJson(res, 500, { error: err.message });
+    }
     return;
   }
 
