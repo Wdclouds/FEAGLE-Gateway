@@ -41,15 +41,22 @@
       <el-col :span="6">
         <el-card shadow="never" class="metric-card">
           <div class="metric-header">
-            <span class="metric-label">Hermes 智能体</span>
-            <el-tag :type="telemetry.hermes?.connected ? 'primary' : 'info'" size="small">
+            <div class="label-with-mode">
+              <span class="metric-label">Hermes 智能体</span>
+              <el-tag size="small" effect="plain" class="mode-badge">
+                {{ formatHermesMode(telemetry.hermes?.mode) }}
+              </el-tag>
+            </div>
+            <el-tag :type="telemetry.hermes?.connected ? 'success' : 'info'" size="small">
               {{ telemetry.hermes?.connected ? 'READY' : 'OFFLINE' }}
             </el-tag>
           </div>
           <div class="metric-value">
-            {{ telemetry.hermes?.lastPingMs !== null ? `${telemetry.hermes?.lastPingMs} ms` : '--' }}
+            {{ telemetry.hermes?.lastPingMs !== null ? `${telemetry.hermes?.lastPingMs} ms` : (telemetry.hermes?.connected ? '已就绪' : '--') }}
           </div>
-          <div class="metric-sub">端点: {{ telemetry.hermes?.endpoint || 'http://127.0.0.1:18080' }}</div>
+          <div class="metric-sub" :title="telemetry.hermes?.statusText || telemetry.hermes?.endpoint">
+            端点: <code>{{ telemetry.hermes?.endpoint || 'http://127.0.0.1:18010' }}</code>
+          </div>
         </el-card>
       </el-col>
 
@@ -192,6 +199,21 @@
             <b>连接详情</b>: <span :class="telemetry.gateway?.connected ? 'text-green' : 'text-gray'">{{ telemetry.gateway?.statusText || '等待检测' }}</span>
           </div>
         </div>
+
+        <el-divider style="margin: 20px 0 16px; border-color: #334155;">Hermes 智能体中枢配置</el-divider>
+        <el-form-item label="Hermes / 记忆中枢端点 (Endpoint)">
+          <el-input v-model="form.hermesEndpoint" placeholder="例如 http://127.0.0.1:18010 或 cli" />
+          <div class="quick-presets">
+            <span class="preset-label">快捷填充：</span>
+            <el-button size="small" link type="primary" @click="form.hermesEndpoint = 'http://127.0.0.1:18010'">
+              本地记忆中枢 (18010)
+            </el-button>
+            <el-button size="small" link type="primary" @click="form.hermesEndpoint = 'cli'">
+              CLI 会话模式 (cli)
+            </el-button>
+          </div>
+          <div class="form-tip">支持填入本地 Mnemosyne 记忆中枢（端口 18010）、Hermes HTTP 网关端点，或填写 <code>cli</code> 标记为本地会话模式。</div>
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -244,6 +266,7 @@ const form = ref({
   gatewayServerPort: 6199,
   gatewayRemoteUrl: 'ws://39.97.255.91:6199/ws',
   gatewayToken: '',
+  hermesEndpoint: 'http://127.0.0.1:18010',
 });
 
 function formatModeLabel(mode: string) {
@@ -251,6 +274,13 @@ function formatModeLabel(mode: string) {
   if (mode === 'server') return '本地监听';
   if (mode === 'client') return '远程WS';
   return '未初始化';
+}
+
+function formatHermesMode(mode: string) {
+  if (mode === 'memory') return '记忆中枢';
+  if (mode === 'cli') return 'CLI交互';
+  if (mode === 'http') return 'HTTP网关';
+  return '智能体';
 }
 
 const total24hMessages = computed(() => {
@@ -336,6 +366,7 @@ async function openGatewayDialog() {
       form.value.gatewayServerPort = res.config.gatewayServerPort || 6199;
       form.value.gatewayRemoteUrl = res.config.gatewayRemoteUrl || 'ws://39.97.255.91:6199/ws';
       form.value.gatewayToken = res.config.gatewayToken || '';
+      form.value.hermesEndpoint = res.config.hermesEndpoint || 'http://127.0.0.1:18010';
     }
   } catch {}
 }

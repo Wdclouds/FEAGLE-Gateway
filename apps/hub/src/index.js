@@ -41,7 +41,7 @@ let config = {
   gatewayServerPort: Number(process.env.ONEBOT_PORT || 6199),
   gatewayRemoteUrl: process.env.WECHAT_BRIDGE_WS || 'ws://39.97.255.91:6199/ws',
   gatewayToken: process.env.GATEWAY_TOKEN || '',
-  hermesEndpoint: process.env.HERMES_ENDPOINT || 'http://127.0.0.1:18080',
+  hermesEndpoint: process.env.HERMES_ENDPOINT || 'http://127.0.0.1:18010',
 };
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -153,7 +153,9 @@ const server = http.createServer(async (req, res) => {
       },
       hermes: {
         connected: hermesState.connected,
+        mode: hermesState.mode,
         endpoint: hermesState.endpoint,
+        statusText: hermesState.statusText,
         lastPingMs: hermesState.lastPingMs,
       },
       recentMessages: gatewayState.recentMessages.slice(-20),
@@ -199,6 +201,7 @@ const server = http.createServer(async (req, res) => {
         gatewayServerPort: config.gatewayServerPort || 6199,
         gatewayRemoteUrl: config.gatewayRemoteUrl || 'ws://39.97.255.91:6199/ws',
         gatewayToken: config.gatewayToken || '',
+        hermesEndpoint: config.hermesEndpoint || 'http://127.0.0.1:18010',
       },
       state: {
         connected: gatewayState.connected,
@@ -226,14 +229,18 @@ const server = http.createServer(async (req, res) => {
       config = { ...config, ...body };
       saveConfig();
       initGateway(config);
+      if (body.hermesEndpoint !== undefined) {
+        initHermesProbe(config.hermesEndpoint);
+      }
       sendJson(res, 200, {
         success: true,
-        message: '网关配置已更新并热重载生效',
+        message: '网关与智能体端点配置已更新并热重载生效',
         config: {
           gatewayMode: config.gatewayMode,
           bridgeUrl: config.bridgeUrl,
           gatewayServerPort: config.gatewayServerPort,
           gatewayRemoteUrl: config.gatewayRemoteUrl,
+          hermesEndpoint: config.hermesEndpoint,
         },
         state: {
           connected: gatewayState.connected,
