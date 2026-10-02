@@ -15,7 +15,8 @@ import {
 
 import { signJwt, requireAuth } from './auth.js';
 import {
-  initGatewayClient,
+  initGatewayServer,
+  sendActionToBridge,
   gatewayState,
   subscribeSse,
   broadcastSse,
@@ -52,8 +53,9 @@ function saveConfig() {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
 }
 
-// 2. 启动长连接与探活服务
-initGatewayClient(config.bridgeWs);
+// 2. 启动 OneBot v11 反向 WS 服务端与 Hermes 探活
+const onebotPort = Number(process.env.ONEBOT_PORT || 6199);
+initGatewayServer(onebotPort);
 initHermesProbe(config.hermesEndpoint);
 
 // 3. 辅助函数：读取 JSON Body
@@ -210,15 +212,25 @@ const server = http.createServer(async (req, res) => {
     if (!user) return;
     try {
       const body = await readJsonBody(req);
-      const oldBridge = config.bridgeWs;
       config = { ...config, ...body };
       saveConfig();
-      if (body.bridgeWs && body.bridgeWs !== oldBridge) {
-        initGatewayClient(config.bridgeWs);
-      }
       sendJson(res, 200, { success: true, config });
     } catch (err) {
       sendJson(res, 400, { error: err.message });
+    }
+    return;
+  }
+
+  // 7. 向 Bridge 发送测试 Action (如 get_status, get_version_info)
+  if (pathname === '/api/gateway/action' && req.method === 'POST') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const { action, params } = await readJsonBody(req);
+      const result = await sendActionToBridge(action || 'get_status', params || {});
+      sendJson(res, 200, result);
+    } catch (err) {
+      sendJson(res, 500, { error: err.message });
     }
     return;
   }

@@ -1,19 +1,22 @@
-import { WebSocket } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { upsertGroup, recordHourlyMetric } from './db.js';
 
 export const gatewayState = {
   connected: false,
-  endpoint: 'ws://127.0.0.1:6199',
+  role: 'server',
+  port: Number(process.env.ONEBOT_PORT || 6199),
+  endpoint: 'ws://127.0.0.1:6199/ws',
+  clientCount: 0,
+  selfId: null,
   lastPingMs: null,
-  reconnectAttempts: 0,
   recentMessages: [],
 };
 
 const sseClients = new Set();
-let wsClient = null;
-let reconnectTimer = null;
-let pingTimer = null;
-let isAlive = false;
+const activeSockets = new Set();
+let wss = null;
+const actionWaiters = new Map();
+let nextEchoId = 1;
 
 export function subscribeSse(res) {
   sseClients.add(res);
@@ -42,67 +45,49 @@ function extractText(message) {
   return '';
 }
 
-export function initGatewayClient(endpoint) {
-  if (endpoint) gatewayState.endpoint = endpoint;
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  if (pingTimer) {
-    clearInterval(pingTimer);
-    pingTimer = null;
-  }
-  if (wsClient) {
+export function initGatewayServer(port = gatewayState.port) {
+  if (wss) {
     try {
-      wsClient.removeAllListeners();
-      wsClient.close();
+      wss.close();
     } catch {
       // ignore
     }
-    wsClient = null;
+    wss = null;
   }
 
-  console.log(`[GatewayClient] Connecting to ${gatewayState.endpoint}`);
+  gatewayState.port = Number(port);
+  console.log(`[GatewayServer] 正在启动 OneBot v11 反向 WebSocket 服务端，监听端口 :${gatewayState.port}`);
 
-  try {
-    wsClient = new WebSocket(gatewayState.endpoint, {
-      headers: {
-        'X-Client-Role': 'Universal',
-      },
+  wss = new WebSocketServer({ port: gatewayState.port });
+
+  wss.on('connection', (socket, req) => {
+    activeSockets.add(socket);
+    gatewayState.connected = true;
+    gatewayState.clientCount = activeSockets.size;
+
+    const selfIdHeader = req.headers['x-self-id'];
+    if (selfIdHeader) gatewayState.selfId = String(selfIdHeader);
+
+    console.log(`[GatewayServer] Bridge 客户端已连入！(URL: ${req.url}, Self-ID: ${gatewayState.selfId || 'unknown'})`);
+    broadcastSse('gateway_status', {
+      connected: true,
+      clientCount: activeSockets.size,
+      selfId: gatewayState.selfId,
     });
 
-    wsClient.on('open', () => {
-      gatewayState.connected = true;
-      gatewayState.reconnectAttempts = 0;
-      isAlive = true;
-      console.log('[GatewayClient] Connected to Bridge WebSocket');
-      broadcastSse('gateway_status', { connected: true, endpoint: gatewayState.endpoint });
-
-      // Protocol-level ping
-      pingTimer = setInterval(() => {
-        if (!wsClient || wsClient.readyState !== WebSocket.OPEN) return;
-        if (!isAlive) {
-          console.log('[GatewayClient] Half-open socket detected, terminating');
-          wsClient.terminate();
-          return;
-        }
-        isAlive = false;
-        try {
-          wsClient.ping();
-        } catch {
-          // ignore
-        }
-      }, 15_000);
-      pingTimer.unref();
-    });
-
-    wsClient.on('pong', () => {
-      isAlive = true;
-    });
-
-    wsClient.on('message', (raw) => {
+    socket.on('message', (raw) => {
       try {
         const data = JSON.parse(raw.toString());
+
+        // 1. 如果是对 Hub 发送的 Action 响应 (带 echo)
+        if (data.echo && actionWaiters.has(data.echo)) {
+          const waiter = actionWaiters.get(data.echo);
+          actionWaiters.delete(data.echo);
+          waiter.resolve(data);
+          return;
+        }
+
+        // 2. 上报事件处理
         if (data.post_type === 'message') {
           const text = data.raw_message || extractText(data.message) || '[多媒体消息]';
           const sender = data.sender?.nickname || String(data.user_id || 'unknown');
@@ -122,46 +107,75 @@ export function initGatewayClient(endpoint) {
           gatewayState.recentMessages.push(messageEntry);
           if (gatewayState.recentMessages.length > 100) gatewayState.recentMessages.shift();
 
-          // 落库 SQLite
+          // 入库 SQLite
           if (data.message_type === 'group' && data.group_id) {
             const gid = String(data.group_id);
             upsertGroup(gid, groupName, sender);
             recordHourlyMetric(gid);
           }
 
-          // SSE 推流到前端
+          // SSE 推流到 Web 前端
           broadcastSse('message', messageEntry);
         } else if (data.post_type === 'meta_event') {
           gatewayState.connected = true;
+          if (data.meta_event_type === 'heartbeat') {
+            gatewayState.lastPingMs = Date.now();
+            broadcastSse('heartbeat', { time: Date.now() });
+          }
         }
       } catch {
         // ignore malformed frame
       }
     });
 
-    wsClient.on('error', (err) => {
-      gatewayState.connected = false;
-      console.log(`[GatewayClient] Error: ${err.message}`);
+    socket.on('close', () => {
+      activeSockets.delete(socket);
+      gatewayState.clientCount = activeSockets.size;
+      gatewayState.connected = activeSockets.size > 0;
+      console.log(`[GatewayServer] Bridge 客户端断开连接 (剩余连接数: ${activeSockets.size})`);
+      broadcastSse('gateway_status', {
+        connected: gatewayState.connected,
+        clientCount: activeSockets.size,
+      });
     });
 
-    wsClient.on('close', () => {
-      gatewayState.connected = false;
-      if (pingTimer) clearInterval(pingTimer);
-      broadcastSse('gateway_status', { connected: false, endpoint: gatewayState.endpoint });
-
-      // 指数退避 + Jitter
-      const delay = Math.min(
-        30_000,
-        1_000 * (2 ** Math.min(gatewayState.reconnectAttempts, 5)),
-      ) + Math.floor(Math.random() * 1000);
-      gatewayState.reconnectAttempts++;
-      console.log(`[GatewayClient] Disconnected. Reconnecting in ${Math.round(delay / 1000)}s...`);
-      reconnectTimer = setTimeout(() => initGatewayClient(), delay);
-      reconnectTimer.unref();
+    socket.on('error', (err) => {
+      console.log(`[GatewayServer] Socket 异常: ${err.message}`);
     });
-  } catch (err) {
-    gatewayState.connected = false;
-    reconnectTimer = setTimeout(() => initGatewayClient(), 5000);
-    reconnectTimer.unref();
+  });
+
+  wss.on('error', (err) => {
+    console.error(`[GatewayServer] 监听端口 ${gatewayState.port} 失败: ${err.message}`);
+  });
+}
+
+/** 向已连接的 Bridge 发送 OneBot Action（如 send_msg, get_status 等） */
+export function sendActionToBridge(action, params = {}, timeoutMs = 5000) {
+  const socket = activeSockets.values().next().value;
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return Promise.reject(new Error('Bridge WebSocket 尚未连接，无法执行动作'));
   }
+
+  const echo = `echo_${nextEchoId++}_${Date.now()}`;
+  const payload = { action, params, echo };
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      actionWaiters.delete(echo);
+      reject(new Error(`Action [${action}] 执行超时 (${timeoutMs}ms)`));
+    }, timeoutMs);
+
+    actionWaiters.set(echo, {
+      resolve: (data) => {
+        clearTimeout(timer);
+        resolve(data);
+      },
+      reject: (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    });
+
+    socket.send(JSON.stringify(payload));
+  });
 }

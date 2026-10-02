@@ -132,6 +132,12 @@ const dashboard = new DashboardServer({
   setTestMode: (enabled) => state.patch('testMode', { enabled: Boolean(enabled) }),
   getBridgeSettings: () => settingsStore.snapshot(),
   saveBridgeSettings: (changes) => settingsStore.save(changes),
+  setGroupChatMode: async (gid, mode) => {
+    controlStore.saveGroupMode(gid, mode);
+    state.setGroupMode(gid, mode);
+    if (wechat?.groupModes) wechat.groupModes[gid] = mode;
+    return state.snapshot();
+  },
 });
 
 
