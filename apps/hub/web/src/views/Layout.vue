@@ -22,6 +22,10 @@
           <el-icon><Monitor /></el-icon>
           <span>网关遥测大盘</span>
         </el-menu-item>
+        <el-menu-item index="/connection">
+          <el-icon><Share /></el-icon>
+          <span>网关节点连接</span>
+        </el-menu-item>
         <el-menu-item index="/groups">
           <el-icon><Connection /></el-icon>
           <span>多群策略编排</span>
@@ -52,7 +56,7 @@
           <div
             class="status-capsule gateway-capsule"
             :title="gatewayTooltip"
-            @click="goToDashboardConfig"
+            @click="goToConnection"
           >
             <span class="dot" :class="{ online: telemetry.gateway?.connected }"></span>
             <span>Gateway: {{ gatewayLabel }}</span>
@@ -91,7 +95,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Monitor, Connection, ChatDotRound, Document } from '@element-plus/icons-vue';
+import { Monitor, Connection, ChatDotRound, Document, Share } from '@element-plus/icons-vue';
 import { useAuthStore } from '../stores/auth';
 import { apiClient } from '../api/client';
 
@@ -102,10 +106,10 @@ const authStore = useAuthStore();
 const activeRoute = computed(() => route.path);
 const currentTitle = computed(() => (route.meta.title as string) || '控制中台');
 
-const telemetry = ref<any>({
+const telemetry = ref<any>(({
   gateway: { connected: false, mode: 'server', listenPort: 6199, endpoint: '', statusText: '' },
   hermes: { connected: false, endpoint: '' },
-});
+}));
 
 let timer: any = null;
 
@@ -130,9 +134,9 @@ const gatewayTooltip = computed(() => {
   return `【${modeName}】\n端点: ${g.endpoint || '--'}\n状态: ${g.statusText || '--'}`;
 });
 
-function goToDashboardConfig() {
-  if (route.path !== '/dashboard') {
-    router.push('/dashboard');
+function goToConnection() {
+  if (route.path !== '/connection') {
+    router.push('/connection');
   }
 }
 

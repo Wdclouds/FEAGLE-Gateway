@@ -38,4 +38,5 @@ apiClient.interceptors.response.use(
 export const gatewayApi = {
   getConfig: () => apiClient.get('/gateway/config') as Promise<any>,
   saveConfig: (data: any) => apiClient.post('/gateway/config', data) as Promise<any>,
+  probe: (data: any) => apiClient.post('/gateway/probe', data) as Promise<any>,
 };

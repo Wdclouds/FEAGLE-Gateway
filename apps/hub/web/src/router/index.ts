@@ -5,6 +5,7 @@ import DashboardView from '../views/DashboardView.vue';
 import GroupPolicyView from '../views/GroupPolicyView.vue';
 import MessageStreamView from '../views/MessageStreamView.vue';
 import AuditLogView from '../views/AuditLogView.vue';
+import GatewayConnectView from '../views/GatewayConnectView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -25,6 +26,12 @@ const router = createRouter({
           name: 'Dashboard',
           component: DashboardView,
           meta: { title: '网关遥测大盘' },
+        },
+        {
+          path: 'connection',
+          name: 'GatewayConnect',
+          component: GatewayConnectView,
+          meta: { title: '网关节点连接' },
         },
         {
           path: 'groups',

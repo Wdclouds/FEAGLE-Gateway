@@ -224,6 +224,10 @@ const server = http.createServer(async (req, res) => {
         gatewayRemoteUrl: config.gatewayRemoteUrl || 'ws://127.0.0.1:6199/ws',
         gatewayToken: config.gatewayToken || '',
         hermesEndpoint: config.hermesEndpoint || 'http://127.0.0.1:18010',
+        savedNodes: config.savedNodes || [
+          { id: 'cloud_node', name: '阿里云生产节点', url: 'http://39.97.255.91:6190', mode: 'bridge_sync' },
+          { id: 'local_node', name: '本地开发节点', url: 'http://127.0.0.1:6190', mode: 'bridge_sync' },
+        ],
       },
       state: {
         connected: gatewayState.connected,
@@ -240,6 +244,77 @@ const server = http.createServer(async (req, res) => {
         reconnectAttempts: gatewayState.reconnectAttempts,
       },
     });
+    return;
+  }
+
+  // 4.1 连通性实时测试探测器 (不用保存先测通)
+  if (pathname === '/api/gateway/probe' && req.method === 'POST') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const body = await readJsonBody(req);
+      const mode = body.gatewayMode || 'bridge_sync';
+      const start = Date.now();
+
+      if (mode === 'bridge_sync') {
+        let rawUrl = (body.bridgeUrl || 'http://127.0.0.1:6190').trim();
+        if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+          rawUrl = 'http://' + rawUrl;
+        }
+        let parsed;
+        try {
+          parsed = new URL(rawUrl);
+          if (!parsed.port) parsed.port = '6190';
+        } catch {
+          sendJson(res, 200, { ok: false, error: '目标 URL 格式不合法' });
+          return;
+        }
+        const target = parsed.origin;
+        const probeRes = await fetch(`${target}/api/status`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        const pingMs = Date.now() - start;
+        if (!probeRes.ok) throw new Error(`HTTP ${probeRes.status}`);
+        const data = await probeRes.json();
+        sendJson(res, 200, {
+          ok: true,
+          pingMs,
+          endpoint: target,
+          wechatStatus: data.wechat?.status || 'OFFLINE',
+          accountName: data.selfAvatar?.nickname || 'FaSt_eAgle',
+          detail: data.wechat?.detail || '状态就绪',
+          discoveredGroupsCount: data.groupChat?.discovered?.length || 0,
+        });
+        return;
+      } else if (mode === 'client') {
+        const rawUrl = (body.gatewayRemoteUrl || 'ws://127.0.0.1:6199/ws').trim();
+        const headers = { 'X-Self-ID': '1000000001' };
+        if (body.gatewayToken) headers['Authorization'] = `Bearer ${body.gatewayToken}`;
+        const ws = new WebSocket(rawUrl, { headers });
+        const wsResult = await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            try { ws.terminate(); } catch {}
+            reject(new Error('WebSocket 握手超时 (3500ms)'));
+          }, 3500);
+          ws.on('open', () => {
+            clearTimeout(timer);
+            try { ws.terminate(); } catch {}
+            resolve({ ok: true, pingMs: Date.now() - start });
+          });
+          ws.on('error', (err) => {
+            clearTimeout(timer);
+            reject(err);
+          });
+        });
+        sendJson(res, 200, wsResult);
+        return;
+      } else {
+        sendJson(res, 200, { ok: true, message: '本地监听模式无需外部探测' });
+        return;
+      }
+    } catch (err) {
+      sendJson(res, 200, { ok: false, error: err.message });
+    }
     return;
   }
 
