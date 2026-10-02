@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "test": "node --test test/gateway-dual-mode.test.mjs",
     "app": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../../tools/windows/launch-hub-app.ps1"
   },
   "dependencies": {

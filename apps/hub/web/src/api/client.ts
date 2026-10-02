@@ -33,3 +33,9 @@ apiClient.interceptors.response.use(
     return Promise.reject(error);
   },
 );
+
+// 网关管理 API
+export const gatewayApi = {
+  getConfig: () => apiClient.get('/gateway/config') as Promise<any>,
+  saveConfig: (data: any) => apiClient.post('/gateway/config', data) as Promise<any>,
+};

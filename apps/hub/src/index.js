@@ -15,7 +15,7 @@ import {
 
 import { signJwt, requireAuth } from './auth.js';
 import {
-  initGatewayServer,
+  initGateway,
   sendActionToBridge,
   gatewayState,
   subscribeSse,
@@ -36,7 +36,11 @@ const CONFIG_FILE = path.join(__dirname, '..', 'data', 'hub-config.json');
 initDb();
 
 let config = {
-  bridgeWs: process.env.WECHAT_BRIDGE_WS || 'ws://127.0.0.1:6199',
+  gatewayMode: process.env.GATEWAY_MODE || 'bridge_sync',
+  bridgeUrl: process.env.WECHAT_BRIDGE_URL || 'http://39.97.255.91:6190',
+  gatewayServerPort: Number(process.env.ONEBOT_PORT || 6199),
+  gatewayRemoteUrl: process.env.WECHAT_BRIDGE_WS || 'ws://39.97.255.91:6199/ws',
+  gatewayToken: process.env.GATEWAY_TOKEN || '',
   hermesEndpoint: process.env.HERMES_ENDPOINT || 'http://127.0.0.1:18080',
 };
 
@@ -53,9 +57,8 @@ function saveConfig() {
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
 }
 
-// 2. 启动 OneBot v11 反向 WS 服务端与 Hermes 探活
-const onebotPort = Number(process.env.ONEBOT_PORT || 6199);
-initGatewayServer(onebotPort);
+// 2. 启动网关双模管理器与 Hermes 探活
+initGateway(config);
 initHermesProbe(config.hermesEndpoint);
 
 // 3. 辅助函数：读取 JSON Body
@@ -135,7 +138,17 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       gateway: {
         connected: gatewayState.connected,
+        mode: gatewayState.mode,
+        status: gatewayState.status,
+        statusText: gatewayState.statusText,
         endpoint: gatewayState.endpoint,
+        bridgeUrl: gatewayState.bridgeUrl,
+        listenPort: gatewayState.listenPort,
+        remoteUrl: gatewayState.remoteUrl,
+        clientCount: gatewayState.clientCount,
+        selfId: gatewayState.selfId,
+        accountName: gatewayState.accountName,
+        avatarBase64: gatewayState.avatarBase64,
         reconnectAttempts: gatewayState.reconnectAttempts,
       },
       hermes: {
@@ -175,7 +188,68 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 4. 实时日志与遥测推流 (SSE)
+  // 4. 网关配置与切换 (Bridge直连 vs 本地监听 vs 远程WS)
+  if (pathname === '/api/gateway/config' && req.method === 'GET') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    sendJson(res, 200, {
+      config: {
+        gatewayMode: config.gatewayMode || 'bridge_sync',
+        bridgeUrl: config.bridgeUrl || 'http://39.97.255.91:6190',
+        gatewayServerPort: config.gatewayServerPort || 6199,
+        gatewayRemoteUrl: config.gatewayRemoteUrl || 'ws://39.97.255.91:6199/ws',
+        gatewayToken: config.gatewayToken || '',
+      },
+      state: {
+        connected: gatewayState.connected,
+        mode: gatewayState.mode,
+        status: gatewayState.status,
+        statusText: gatewayState.statusText,
+        endpoint: gatewayState.endpoint,
+        bridgeUrl: gatewayState.bridgeUrl,
+        listenPort: gatewayState.listenPort,
+        remoteUrl: gatewayState.remoteUrl,
+        clientCount: gatewayState.clientCount,
+        selfId: gatewayState.selfId,
+        accountName: gatewayState.accountName,
+        reconnectAttempts: gatewayState.reconnectAttempts,
+      },
+    });
+    return;
+  }
+
+  if (pathname === '/api/gateway/config' && req.method === 'POST') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const body = await readJsonBody(req);
+      config = { ...config, ...body };
+      saveConfig();
+      initGateway(config);
+      sendJson(res, 200, {
+        success: true,
+        message: '网关配置已更新并热重载生效',
+        config: {
+          gatewayMode: config.gatewayMode,
+          bridgeUrl: config.bridgeUrl,
+          gatewayServerPort: config.gatewayServerPort,
+          gatewayRemoteUrl: config.gatewayRemoteUrl,
+        },
+        state: {
+          connected: gatewayState.connected,
+          mode: gatewayState.mode,
+          status: gatewayState.status,
+          statusText: gatewayState.statusText,
+          endpoint: gatewayState.endpoint,
+        },
+      });
+    } catch (err) {
+      sendJson(res, 400, { error: err.message });
+    }
+    return;
+  }
+
+  // 5. 实时日志与遥测推流 (SSE)
   if (pathname === '/api/events' && req.method === 'GET') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -186,7 +260,15 @@ const server = http.createServer(async (req, res) => {
 
     // 初始快照
     res.write(`event: init\ndata: ${JSON.stringify({
-      gateway: { connected: gatewayState.connected, endpoint: gatewayState.endpoint },
+      gateway: {
+        connected: gatewayState.connected,
+        mode: gatewayState.mode,
+        status: gatewayState.status,
+        statusText: gatewayState.statusText,
+        endpoint: gatewayState.endpoint,
+        listenPort: gatewayState.listenPort,
+        remoteUrl: gatewayState.remoteUrl,
+      },
       hermes: { connected: hermesState.connected, endpoint: hermesState.endpoint },
       recentMessages: gatewayState.recentMessages.slice(-20),
     })}\n\n`);
@@ -198,7 +280,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 5. 审计日志
+  // 6. 审计日志
   if (pathname === '/api/audit' && req.method === 'GET') {
     const user = requireAuth(req, res);
     if (!user) return;
@@ -206,7 +288,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 6. 配置管理
+  // 7. 配置管理
   if (pathname === '/api/config' && req.method === 'POST') {
     const user = requireAuth(req, res);
     if (!user) return;
@@ -221,7 +303,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 7. 向 Bridge 发送测试 Action (如 get_status, get_version_info)
+  // 8. 向 Bridge 发送测试 Action (如 get_status, get_version_info)
   if (pathname === '/api/gateway/action' && req.method === 'POST') {
     const user = requireAuth(req, res);
     if (!user) return;
@@ -240,7 +322,6 @@ const server = http.createServer(async (req, res) => {
   let filePath = path.join(serveDir, pathname === '/' ? 'index.html' : pathname);
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    // SPA fallback: 非静态资源回退到 index.html
     filePath = path.join(serveDir, 'index.html');
   }
 

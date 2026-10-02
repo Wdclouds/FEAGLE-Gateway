@@ -37,7 +37,7 @@
       </el-menu>
 
       <div class="aside-footer">
-        <div class="version-tag">v2.0 · Enterprise</div>
+        <div class="version-tag">v2.0 · Enterprise Dual-Mode</div>
       </div>
     </el-aside>
 
@@ -48,14 +48,23 @@
           <span class="route-title">{{ currentTitle }}</span>
         </div>
         <div class="header-right">
-          <div class="status-capsule">
-            <span class="dot" :class="{ online: telemetry.gateway.connected }"></span>
-            <span>Gateway: {{ telemetry.gateway.connected ? 'ONLINE' : 'OFFLINE' }}</span>
+          <!-- Gateway 胶囊：明确展示监听模式与端口/目标 -->
+          <div
+            class="status-capsule gateway-capsule"
+            :title="gatewayTooltip"
+            @click="goToDashboardConfig"
+          >
+            <span class="dot" :class="{ online: telemetry.gateway?.connected }"></span>
+            <span>Gateway: {{ gatewayLabel }}</span>
           </div>
-          <div class="status-capsule">
-            <span class="dot" :class="{ online: telemetry.hermes.connected }"></span>
-            <span>Hermes: {{ telemetry.hermes.connected ? 'READY' : 'OFFLINE' }}</span>
+
+          <!-- Hermes 智能体胶囊 -->
+          <div class="status-capsule" :title="telemetry.hermes?.endpoint || 'http://127.0.0.1:18080'">
+            <span class="dot" :class="{ online: telemetry.hermes?.connected }"></span>
+            <span>Hermes: {{ telemetry.hermes?.connected ? 'READY' : 'OFFLINE' }}</span>
           </div>
+
+          <!-- 管理员下拉菜单 -->
           <el-dropdown trigger="click">
             <div class="user-badge">
               <el-avatar :size="32" style="background-color: #0284c7;">
@@ -81,22 +90,51 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import { Monitor, Connection, ChatDotRound, Document } from '@element-plus/icons-vue';
 import { useAuthStore } from '../stores/auth';
 import { apiClient } from '../api/client';
 
 const route = useRoute();
+const router = useRouter();
 const authStore = useAuthStore();
 
 const activeRoute = computed(() => route.path);
 const currentTitle = computed(() => (route.meta.title as string) || '控制中台');
 
-const telemetry = ref({
-  gateway: { connected: false },
-  hermes: { connected: false },
+const telemetry = ref<any>({
+  gateway: { connected: false, mode: 'server', listenPort: 6199, endpoint: '', statusText: '' },
+  hermes: { connected: false, endpoint: '' },
 });
 
 let timer: any = null;
+
+const gatewayLabel = computed(() => {
+  const g = telemetry.value.gateway;
+  if (!g) return 'OFFLINE';
+  if (g.mode === 'bridge_sync') {
+    return g.connected ? `云端直连 (${g.accountName || '已连'})` : '云端直连 (离线)';
+  }
+  if (g.mode === 'client') {
+    return g.connected ? '远程已连' : '远程重连中';
+  }
+  // server mode
+  const port = g.listenPort || 6199;
+  return g.connected ? `本地 :${port} (已连)` : `本地 :${port} (监听中)`;
+});
+
+const gatewayTooltip = computed(() => {
+  const g = telemetry.value.gateway;
+  if (!g) return '网关未连接';
+  const modeName = g.mode === 'bridge_sync' ? '云端Bridge直连模式' : (g.mode === 'client' ? '远程WS客户端' : '本地监听模式');
+  return `【${modeName}】\n端点: ${g.endpoint || '--'}\n状态: ${g.statusText || '--'}`;
+});
+
+function goToDashboardConfig() {
+  if (route.path !== '/dashboard') {
+    router.push('/dashboard');
+  }
+}
 
 async function fetchTelemetry() {
   try {
@@ -110,7 +148,7 @@ async function fetchTelemetry() {
 
 onMounted(() => {
   fetchTelemetry();
-  timer = setInterval(fetchTelemetry, 10000);
+  timer = setInterval(fetchTelemetry, 6000);
 });
 
 onUnmounted(() => {
@@ -199,6 +237,14 @@ onUnmounted(() => {
   font-size: 12px;
   color: #cbd5e1;
   border: 1px solid #334155;
+  transition: all 0.2s;
+}
+.gateway-capsule {
+  cursor: pointer;
+}
+.gateway-capsule:hover {
+  border-color: #38bdf8;
+  color: #f8fafc;
 }
 .dot {
   width: 8px;
