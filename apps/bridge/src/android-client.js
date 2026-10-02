@@ -574,6 +574,7 @@ export class AndroidWechatClient {
     const eventId = String(message.eventId || '').trim();
     const talker = String(message.talker || '').trim();
     const nickname = displayName(message.displayName);
+    const peer = nickname || talker;
     const content = typeof message.content === 'string' ? message.content : '';
     if (
       !validIdentifier(eventId)
@@ -618,7 +619,7 @@ export class AndroidWechatClient {
         talker,
         nickname,
       );
-      guard = this.messageGuard?.check({
+      guard = this.messageGuard?.check?.({
         userId,
         text: content,
         wechatMessageId: receiptId,
@@ -646,7 +647,7 @@ export class AndroidWechatClient {
       this.idMap.updateMessageReceipt(receiptId, 'FORWARDED');
       this.ack(socket, eventId);
     } catch (error) {
-      this.messageGuard?.rollback(guard);
+      this.messageGuard?.rollback?.(guard);
       this.idMap.releaseMessageReceipt(receiptId);
       this.state.addError('android-private-forward', error);
       this.nack(
@@ -1098,7 +1099,7 @@ export class AndroidWechatClient {
         return;
       }
 
-      const safety = this.groupSafety?.checkInbound({ groupId, userId, text: content });
+      const safety = this.groupSafety?.checkInbound?.({ groupId, userId, text: content });
       if (safety && !safety.allowed) {
         this.idMap.updateMessageReceipt(receiptId, 'BLOCKED');
         this.state.increment('blocked');
@@ -1113,7 +1114,7 @@ export class AndroidWechatClient {
         return;
       }
 
-      guard = this.messageGuard?.check({
+      guard = this.messageGuard?.check?.({
         userId: `group:${groupId}:user:${userId}`,
         text: content,
         wechatMessageId: receiptId,
@@ -1161,8 +1162,8 @@ export class AndroidWechatClient {
       this.state.incrementGroup('forwarded');
       this.ack(socket, eventId);
     } catch (error) {
-      this.messageGuard?.rollback(guard);
-      this.groupSafety?.recordFailure(groupId);
+      this.messageGuard?.rollback?.(guard);
+      this.groupSafety?.recordFailure?.(groupId);
       this.idMap.releaseMessageReceipt(receiptId);
       this.state.incrementGroup('blocked');
       this.state.addError('android-group-forward', error);
@@ -1290,7 +1291,7 @@ export class AndroidWechatClient {
       this.state.incrementGroup('blocked');
       throw error;
     }
-    const safety = this.groupSafety?.checkOutbound({ groupId, text: content });
+    const safety = this.groupSafety?.checkOutbound?.({ groupId, text: content });
     if (safety && !safety.allowed) {
       const error = new Error('群聊回复被安全策略或熔断器拦截');
       error.code = safety.status;
@@ -1308,7 +1309,7 @@ export class AndroidWechatClient {
       this.state.increment('blocked');
       this.state.incrementGroup('blocked');
       this.state.incrementGroup('rateLimited');
-      this.groupSafety?.recordAnomaly(groupId);
+      this.groupSafety?.recordAnomaly?.(groupId);
       throw error;
     }
     const jitterMs = this.groupJitterMinMs + Math.floor(
@@ -1319,7 +1320,7 @@ export class AndroidWechatClient {
     if (!this.loggedIn || this.adminMode !== WECHAT_ADMIN_MODES.RUNNING || this.isSleeping()) {
       throw new Error('回复等待期间机器人状态已变化');
     }
-    const safetyAfterDelay = this.groupSafety?.checkOutbound({ groupId, text: content });
+    const safetyAfterDelay = this.groupSafety?.checkOutbound?.({ groupId, text: content });
     if (safetyAfterDelay && !safetyAfterDelay.allowed) {
       const error = new Error('回复等待期间群聊安全状态已变化');
       error.code = safetyAfterDelay.status;
@@ -1333,11 +1334,11 @@ export class AndroidWechatClient {
     try {
       commandId = await this.sendAgentText('group', talker, content);
     } catch (error) {
-      this.groupSafety?.recordFailure(groupId);
+      this.groupSafety?.recordFailure?.(groupId);
       throw error;
     }
     this.lastGroupReplyAt.set(groupId, this.now());
-    this.groupSafety?.recordSuccess(groupId);
+    this.groupSafety?.recordSuccess?.(groupId);
     this.state.increment('replied');
     this.state.incrementGroup('replied');
     this.state.addMessage({

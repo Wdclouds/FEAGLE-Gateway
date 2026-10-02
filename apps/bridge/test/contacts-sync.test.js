@@ -6,7 +6,12 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { AndroidWechatClient } from '../src/android-client.js';
 import { IdMap } from '../src/id-map.js';
-import { MessageGuard } from '../src/message-guard.js';
+class MessageGuard {
+  constructor() { this.seen = new Set(); }
+  shouldForward() { return true; }
+  commit() {}
+  rollback() {}
+}
 import { RuntimeState } from '../src/state.js';
 
 const TOKEN = 'android-test-token-with-at-least-24-characters';

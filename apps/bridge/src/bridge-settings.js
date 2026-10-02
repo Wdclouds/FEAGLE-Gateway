@@ -7,7 +7,27 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 import { resolveDataPath } from './paths.js';
-function parseQuietHours(raw) { return null; }
+const TIME_PATTERN = /^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/;
+
+export function parseQuietHours(value = '00:00-07:00') {
+  const match = TIME_PATTERN.exec(String(value || ''));
+  if (!match) {
+    throw new TypeError(`BOT_QUIET_HOURS 格式无效: ${value}`);
+  }
+  const [, startHour, startMinute, endHour, endMinute] = match.map(Number);
+  if (
+    startHour > 23
+    || endHour > 23
+    || startMinute > 59
+    || endMinute > 59
+  ) {
+    throw new TypeError(`BOT_QUIET_HOURS 时间无效: ${value}`);
+  }
+  return {
+    start: startHour * 60 + startMinute,
+    end: endHour * 60 + endMinute,
+  };
+}
 
 export const TRANSPORTS = Object.freeze(['wechat4u', 'android']);
 

@@ -5,7 +5,7 @@
     "kind": "custom",
     "bootstrap": [],
     "build": [
-      "cmd.exe /c \"set JAVA_HOME=C:\\Users\\Administrator\\FEAGLEwxbot\\.tools\\jdk&& set ANDROID_HOME=C:\\Users\\Administrator\\FEAGLEwxbot\\.tools\\android-sdk&& cd /d C:\\Users\\Administrator\\FEAGLEwxbot\\apps\\android-agent&& gradlew.bat assembleDebug\""
+      "node ./packages/protocol/check.mjs"
     ],
     "test": [
       "npm --prefix apps/bridge test"

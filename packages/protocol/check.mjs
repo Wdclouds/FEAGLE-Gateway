@@ -47,4 +47,11 @@ for (const messageType of [
   assert(schema.properties.type.enum.includes(messageType), `schema misses ${messageType}`);
 }
 
-console.log(`Protocol ${protocol} compatibility check passed.`);
+const onebotTypes = await read('packages/protocol/types/onebot-v11.d.ts');
+const androidTypes = await read('packages/protocol/types/android-bridge-v1.d.ts');
+const indexTypes = await read('packages/protocol/index.d.ts');
+assert.match(onebotTypes, /export namespace OneBotV11/);
+assert.match(androidTypes, /export namespace FeagleAndroidV1/);
+assert.match(indexTypes, /export \* from/);
+
+console.log(`Protocol ${protocol} compatibility & TypeScript definitions check passed.`);

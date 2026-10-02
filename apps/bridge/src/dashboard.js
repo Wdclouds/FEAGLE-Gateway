@@ -106,7 +106,8 @@ export class DashboardServer {
     this.server = createServer((request, response) => {
       this.handle(request, response);
     });
-    this.state.on('snapshot', (snapshot) => this.push(snapshot));
+    this.onSnapshotListener = (snapshot) => this.push(snapshot);
+    this.state.on('snapshot', this.onSnapshotListener);
   }
 
   start() {
@@ -1313,6 +1314,10 @@ export class DashboardServer {
   }
 
   stop() {
+    if (this.onSnapshotListener) {
+      this.state.off('snapshot', this.onSnapshotListener);
+      this.onSnapshotListener = null;
+    }
     for (const client of this.clients) client.end();
     this.clients.clear();
     this.server.close();

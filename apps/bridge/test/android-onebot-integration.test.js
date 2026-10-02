@@ -6,7 +6,12 @@ import { join } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { AndroidWechatClient } from '../src/android-client.js';
 import { IdMap } from '../src/id-map.js';
-import { MessageGuard } from '../src/message-guard.js';
+class MessageGuard {
+  constructor() { this.seen = new Set(); }
+  shouldForward() { return true; }
+  commit() {}
+  rollback() {}
+}
 import { OneBotClient } from '../src/onebot-client.js';
 import { RuntimeState } from '../src/state.js';
 

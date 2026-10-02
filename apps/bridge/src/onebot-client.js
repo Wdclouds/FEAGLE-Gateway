@@ -1,7 +1,9 @@
 import WebSocket from 'ws';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const RECONNECT_INTERVAL_MS = 3_000;
+const RECONNECT_MIN_DELAY_MS = 1_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const MAX_CONNECTION_WAITERS = 200;
 
 function positiveInteger(value, fallback) {
   const parsed = Number(value);
@@ -105,6 +107,17 @@ export class OneBotClient {
     this.pendingRequests = new Map();
     this.pendingByUser = new Map();
     this.connectionWaiters = new Set();
+    this.reconnectAttempts = 0;
+    this.isAlive = false;
+  }
+
+  calculateReconnectDelay() {
+    const exponential = Math.min(
+      RECONNECT_MAX_DELAY_MS,
+      RECONNECT_MIN_DELAY_MS * (2 ** Math.min(this.reconnectAttempts, 5)),
+    );
+    // Full Jitter: 引入随机扰动防止惊群效应
+    return Math.floor(Math.random() * exponential) + RECONNECT_MIN_DELAY_MS;
   }
 
   start() {
@@ -113,7 +126,8 @@ export class OneBotClient {
 
   connect() {
     if (this.stopping || !this.selfId) {
-      this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_INTERVAL_MS);
+      const delay = this.calculateReconnectDelay();
+      this.reconnectTimer = setTimeout(() => this.connect(), delay);
       this.reconnectTimer.unref();
       return;
     }
@@ -134,6 +148,8 @@ export class OneBotClient {
     );
 
     this.ws.on('open', () => {
+      this.isAlive = true;
+      this.reconnectAttempts = 0;
       this.state.patch('onebot', {
         status: 'CONNECTED',
         detail: 'AstrBot aiocqhttp 已连接',
@@ -149,6 +165,10 @@ export class OneBotClient {
       this.startHeartbeat();
     });
 
+    this.ws.on('pong', () => {
+      this.isAlive = true;
+    });
+
     this.ws.on('message', (data) => {
       void this.handleAction(data);
     });
@@ -161,24 +181,39 @@ export class OneBotClient {
     });
 
     this.ws.on('close', () => {
+      this.isAlive = false;
       this.stopHeartbeat();
       this.clearPendingRequests();
       if (this.stopping) return;
+      const delay = this.calculateReconnectDelay();
+      this.reconnectAttempts++;
       const reconnects = this.state.onebot.reconnects + 1;
       this.state.patch('onebot', {
         status: 'DISCONNECTED',
         reconnects,
-        detail: '连接断开，3 秒后重连',
+        detail: `连接断开，${Math.round(delay / 1000)} 秒后重连 (第 ${this.reconnectAttempts} 次)`,
       });
-      this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_INTERVAL_MS);
+      this.reconnectTimer = setTimeout(() => this.connect(), delay);
       this.reconnectTimer.unref();
     });
   }
 
   startHeartbeat() {
     this.stopHeartbeat();
+    this.isAlive = true;
     const heartbeat = () => {
       if (this.ws?.readyState !== WebSocket.OPEN || !this.selfId) return;
+      if (!this.isAlive) {
+        console.log('[OneBot] Half-open connection detected, terminating socket forcefully');
+        this.ws.terminate();
+        return;
+      }
+      this.isAlive = false;
+      try {
+        this.ws.ping();
+      } catch {
+        // ping error handled by termination on next tick
+      }
       const now = new Date().toISOString();
       this.sendEvent({
         time: Math.floor(Date.now() / 1000),
@@ -431,6 +466,11 @@ export class OneBotClient {
     if (this.stopping) {
       const error = new Error('OneBot client is stopping');
       error.code = 'UPSTREAM_UNAVAILABLE';
+      return Promise.reject(error);
+    }
+    if (this.connectionWaiters.size >= MAX_CONNECTION_WAITERS) {
+      const error = new Error(`OneBot 连接等待队列已满 (${MAX_CONNECTION_WAITERS})，已丢弃请求`);
+      error.code = 'UPSTREAM_BUSY';
       return Promise.reject(error);
     }
 

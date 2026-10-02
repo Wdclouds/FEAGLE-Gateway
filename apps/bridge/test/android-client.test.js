@@ -10,13 +10,20 @@ import { IdMap } from '../src/id-map.js';
 class MessageGuard {
   constructor() { this.seen = new Set(); }
   shouldForward() { return true; }
+  check() { return { allowed: true }; }
   commit() {}
   rollback() {}
 }
 import { RuntimeState } from '../src/state.js';
 class GroupSafetyGate {
   check() { return { allowed: true }; }
+  checkInbound() { return { allowed: true }; }
+  checkOutbound() { return { allowed: true }; }
   setBlockedTerms() {}
+  recordFailure() {}
+  recordSuccess() {}
+  recordAnomaly() {}
+  stop() {}
 }
 
 const TOKEN = 'android-test-token-with-at-least-24-characters';
