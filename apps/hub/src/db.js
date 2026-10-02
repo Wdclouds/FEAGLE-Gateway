@@ -146,6 +146,11 @@ export function savePolicy(groupId, policy, operator = 'admin') {
   const existing = existingStmt.get(groupId);
   const nextVersion = existing ? existing.version + 1 : 1;
 
+  const prompt = policy.systemPrompt ?? policy.system_prompt ?? '智能助理';
+  const tools = policy.allowedTools ?? policy.allowed_tools ?? ['web_search'];
+  const requireAt = policy.requireAt ?? policy.require_at ?? 1;
+  const responseMode = policy.responseMode ?? policy.response_mode ?? 'SMART';
+
   const stmt = db.prepare(`
     INSERT INTO group_policies (group_id, system_prompt, allowed_tools, require_at, response_mode, version, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -159,10 +164,10 @@ export function savePolicy(groupId, policy, operator = 'admin') {
   `);
   stmt.run(
     String(groupId),
-    policy.systemPrompt || '智能助理',
-    JSON.stringify(policy.allowedTools || ['web_search']),
-    policy.requireAt ? 1 : 0,
-    policy.responseMode || 'SMART',
+    prompt,
+    JSON.stringify(tools),
+    requireAt ? 1 : 0,
+    responseMode,
     nextVersion,
     now,
   );
@@ -170,7 +175,7 @@ export function savePolicy(groupId, policy, operator = 'admin') {
   addAuditLog(
     'POLICY_UPDATE',
     operator,
-    `更新群策略 [${groupId}] 版本 v${nextVersion} (Tools: ${(policy.allowedTools || []).join(',')})`,
+    `更新群策略 [${groupId}] 版本 v${nextVersion} (Tools: ${tools.join(',')})`,
   );
 
   return { groupId, version: nextVersion, updatedAt: now };
