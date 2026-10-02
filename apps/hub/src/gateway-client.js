@@ -293,6 +293,15 @@ async function pollBridgeStatus(targetUrl) {
       }
     }
 
+    // 同步云端已发现的微信群组到本地多群策略表
+    if (data.groupChat && Array.isArray(data.groupChat.discovered)) {
+      for (const g of data.groupChat.discovered) {
+        if (g.groupId && g.name) {
+          upsertGroup(String(g.groupId), g.name, '');
+        }
+      }
+    }
+
     broadcastState();
   } catch (err) {
     gatewayState.connected = false;
