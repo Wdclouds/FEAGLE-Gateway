@@ -6,11 +6,11 @@ export const gatewayState = {
   mode: 'bridge_sync', // 'bridge_sync' | 'server' | 'client'
   status: 'idle', // 'connected' | 'listening' | 'connecting' | 'reconnecting' | 'error'
   statusText: '未初始化',
-  bridgeUrl: process.env.WECHAT_BRIDGE_URL || 'http://39.97.255.91:6190',
+  bridgeUrl: process.env.WECHAT_BRIDGE_URL || 'http://127.0.0.1:6190',
   listenPort: Number(process.env.ONEBOT_PORT || 6199),
-  remoteUrl: process.env.WECHAT_BRIDGE_WS || 'ws://39.97.255.91:6199/ws',
+  remoteUrl: process.env.WECHAT_BRIDGE_WS || 'ws://127.0.0.1:6199/ws',
   token: '',
-  endpoint: 'http://39.97.255.91:6190',
+  endpoint: 'http://127.0.0.1:6190',
   clientCount: 0,
   selfId: null,
   accountName: null,
@@ -144,7 +144,7 @@ function cleanupExisting() {
 }
 
 function normalizeHttpUrl(url) {
-  if (!url) return 'http://39.97.255.91:6190';
+  if (!url) return 'http://127.0.0.1:6190';
   let clean = url.trim();
   if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
     clean = 'http://' + clean;
@@ -240,7 +240,7 @@ export function initGateway(cfg = {}) {
     broadcastState();
   } else {
     // === 模式 3：远程 WebSocket 客户端模式 (Client) ===
-    const remoteUrl = cfg.gatewayRemoteUrl || cfg.remoteUrl || gatewayState.remoteUrl || 'ws://39.97.255.91:6199/ws';
+    const remoteUrl = cfg.gatewayRemoteUrl || cfg.remoteUrl || gatewayState.remoteUrl || 'ws://127.0.0.1:6199/ws';
     const token = cfg.gatewayToken ?? cfg.token ?? gatewayState.token ?? '';
     gatewayState.remoteUrl = remoteUrl;
     gatewayState.token = token;

@@ -25,7 +25,7 @@
           </div>
           <div class="metric-sub" :title="telemetry.gateway?.statusText || telemetry.gateway?.endpoint">
             <span v-if="telemetry.gateway?.mode === 'bridge_sync'">
-              直连地址: <code>{{ telemetry.gateway?.bridgeUrl || 'http://39.97.255.91:6190' }}</code>
+              直连地址: <code>{{ telemetry.gateway?.bridgeUrl || 'http://127.0.0.1:6190' }}</code>
             </span>
             <span v-else-if="telemetry.gateway?.mode === 'server'">
               监视端口: <code>:{{ telemetry.gateway?.listenPort || 6199 }}</code>
@@ -150,14 +150,11 @@
             <b>云端直连模式说明</b>：直接填入你的服务器公网 IP 或域名，Hub 将自动通过 HTTP REST & SSE 实时流无缝对齐云端微信状态与消息大盘，<b>无需手动打任何 SSH 隧道</b>。
           </div>
           <el-form-item label="Bridge 服务器地址 (IP 或完整 URL)" style="margin-top: 14px;">
-            <el-input v-model="form.bridgeUrl" placeholder="例如 39.97.255.91 或 http://39.97.255.91:6190" />
+            <el-input v-model="form.bridgeUrl" placeholder="例如 127.0.0.1:6190 或 your-server.com:6190" />
             <div class="quick-presets">
               <span class="preset-label">快捷填充：</span>
-              <el-button size="small" link type="primary" @click="form.bridgeUrl = 'http://39.97.255.91:6190'">
-                阿里云服务器 (39.97.255.91:6190)
-              </el-button>
               <el-button size="small" link type="primary" @click="form.bridgeUrl = 'http://127.0.0.1:6190'">
-                本地 Bridge (127.0.0.1:6190)
+                本地默认 (127.0.0.1:6190)
               </el-button>
             </div>
           </el-form-item>
@@ -180,7 +177,7 @@
             <b>远程 WS 模式说明</b>：Hub 作为 OneBot 客户端主动连入指定的 WebSocket 服务端。
           </div>
           <el-form-item label="远程 WebSocket 地址 (WS URL)" style="margin-top: 14px;">
-            <el-input v-model="form.gatewayRemoteUrl" placeholder="ws://39.97.255.91:6199/ws" />
+            <el-input v-model="form.gatewayRemoteUrl" placeholder="ws://127.0.0.1:6199/ws" />
           </el-form-item>
           <el-form-item label="鉴权 Token (可选)">
             <el-input v-model="form.gatewayToken" placeholder="若远程服务有 Token 保护请输入" show-password />
@@ -243,7 +240,7 @@ const telemetry = ref<any>({
   gateway: {
     connected: false,
     mode: 'bridge_sync',
-    bridgeUrl: 'http://39.97.255.91:6190',
+    bridgeUrl: 'http://127.0.0.1:6190',
     listenPort: 6199,
     remoteUrl: '',
     endpoint: '',
@@ -262,9 +259,9 @@ const dialogVisible = ref(false);
 const saving = ref(false);
 const form = ref({
   gatewayMode: 'bridge_sync',
-  bridgeUrl: 'http://39.97.255.91:6190',
+  bridgeUrl: 'http://127.0.0.1:6190',
   gatewayServerPort: 6199,
-  gatewayRemoteUrl: 'ws://39.97.255.91:6199/ws',
+  gatewayRemoteUrl: 'ws://127.0.0.1:6199/ws',
   gatewayToken: '',
   hermesEndpoint: 'http://127.0.0.1:18010',
 });
@@ -362,9 +359,9 @@ async function openGatewayDialog() {
     const res: any = await gatewayApi.getConfig();
     if (res?.config) {
       form.value.gatewayMode = res.config.gatewayMode || 'bridge_sync';
-      form.value.bridgeUrl = res.config.bridgeUrl || 'http://39.97.255.91:6190';
+      form.value.bridgeUrl = res.config.bridgeUrl || 'http://127.0.0.1:6190';
       form.value.gatewayServerPort = res.config.gatewayServerPort || 6199;
-      form.value.gatewayRemoteUrl = res.config.gatewayRemoteUrl || 'ws://39.97.255.91:6199/ws';
+      form.value.gatewayRemoteUrl = res.config.gatewayRemoteUrl || 'ws://127.0.0.1:6199/ws';
       form.value.gatewayToken = res.config.gatewayToken || '';
       form.value.hermesEndpoint = res.config.hermesEndpoint || 'http://127.0.0.1:18010';
     }

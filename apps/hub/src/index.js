@@ -37,9 +37,9 @@ initDb();
 
 let config = {
   gatewayMode: process.env.GATEWAY_MODE || 'bridge_sync',
-  bridgeUrl: process.env.WECHAT_BRIDGE_URL || 'http://39.97.255.91:6190',
+  bridgeUrl: process.env.WECHAT_BRIDGE_URL || 'http://127.0.0.1:6190',
   gatewayServerPort: Number(process.env.ONEBOT_PORT || 6199),
-  gatewayRemoteUrl: process.env.WECHAT_BRIDGE_WS || 'ws://39.97.255.91:6199/ws',
+  gatewayRemoteUrl: process.env.WECHAT_BRIDGE_WS || 'ws://127.0.0.1:6199/ws',
   gatewayToken: process.env.GATEWAY_TOKEN || '',
   hermesEndpoint: process.env.HERMES_ENDPOINT || 'http://127.0.0.1:18010',
 };
@@ -197,9 +197,9 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       config: {
         gatewayMode: config.gatewayMode || 'bridge_sync',
-        bridgeUrl: config.bridgeUrl || 'http://39.97.255.91:6190',
+        bridgeUrl: config.bridgeUrl || 'http://127.0.0.1:6190',
         gatewayServerPort: config.gatewayServerPort || 6199,
-        gatewayRemoteUrl: config.gatewayRemoteUrl || 'ws://39.97.255.91:6199/ws',
+        gatewayRemoteUrl: config.gatewayRemoteUrl || 'ws://127.0.0.1:6199/ws',
         gatewayToken: config.gatewayToken || '',
         hermesEndpoint: config.hermesEndpoint || 'http://127.0.0.1:18010',
       },
