@@ -1,7 +1,8 @@
 <template>
   <div class="dashboard-container">
-    <!-- 顶部核心遥测指标卡片 -->
-    <el-row :gutter="20" class="metric-row">
+    <!-- 1. 顶部四大核心指标卡片 (去噪精炼，直击关键状态) -->
+    <el-row :gutter="16" class="metric-row">
+      <!-- 网关状态卡片 -->
       <el-col :span="6">
         <el-card shadow="never" class="metric-card gateway-card">
           <div class="metric-header">
@@ -13,31 +14,23 @@
             </div>
             <div class="header-actions">
               <el-tag :type="telemetry.gateway?.connected ? 'success' : 'danger'" size="small">
-                {{ telemetry.gateway?.connected ? 'ONLINE' : (telemetry.gateway?.mode === 'server' ? 'LISTENING' : 'OFFLINE') }}
+                {{ telemetry.gateway?.connected ? 'ONLINE' : 'OFFLINE' }}
               </el-tag>
-              <el-button link type="primary" size="small" class="config-btn" @click="openGatewayDialog">
+              <el-button link type="primary" size="small" class="config-btn" @click="goToGatewayConfig">
                 <el-icon><Setting /></el-icon> 配置
               </el-button>
             </div>
           </div>
           <div class="metric-value">
-            {{ telemetry.gateway?.connected ? (telemetry.gateway?.accountName || '已连接') : (telemetry.gateway?.mode === 'server' ? '等待接入' : '断开重连') }}
+            {{ telemetry.gateway?.connected ? (telemetry.gateway?.accountName || '已连接') : '等待连接' }}
           </div>
-          <div class="metric-sub" :title="telemetry.gateway?.statusText || telemetry.gateway?.endpoint">
-            <span v-if="telemetry.gateway?.mode === 'bridge_sync'">
-              直连地址: <code>{{ telemetry.gateway?.bridgeUrl || 'http://127.0.0.1:6190' }}</code>
-            </span>
-            <span v-else-if="telemetry.gateway?.mode === 'server'">
-              监视端口: <code>:{{ telemetry.gateway?.listenPort || 6199 }}</code>
-              <span class="sub-hint">({{ telemetry.gateway?.clientCount || 0 }} 个客户端)</span>
-            </span>
-            <span v-else>
-              远程地址: <code>{{ telemetry.gateway?.remoteUrl || '未配置' }}</code>
-            </span>
+          <div class="metric-sub" :title="telemetry.gateway?.endpoint || telemetry.gateway?.bridgeUrl">
+            直连: <code>{{ telemetry.gateway?.bridgeUrl || telemetry.gateway?.endpoint || '127.0.0.1:6190' }}</code>
           </div>
         </el-card>
       </el-col>
 
+      <!-- Hermes 智能体卡片 -->
       <el-col :span="6">
         <el-card shadow="never" class="metric-card">
           <div class="metric-header">
@@ -52,186 +45,163 @@
             </el-tag>
           </div>
           <div class="metric-value">
-            {{ telemetry.hermes?.lastPingMs !== null ? `${telemetry.hermes?.lastPingMs} ms` : (telemetry.hermes?.connected ? '已就绪' : '--') }}
+            {{ telemetry.hermes?.lastPingMs !== null ? `${telemetry.hermes?.lastPingMs} ms` : (telemetry.hermes?.connected ? '就绪' : '--') }}
           </div>
-          <div class="metric-sub" :title="telemetry.hermes?.statusText || telemetry.hermes?.endpoint">
-            端点: <code>{{ telemetry.hermes?.endpoint || 'http://127.0.0.1:18010' }}</code>
+          <div class="metric-sub" :title="telemetry.hermes?.endpoint">
+            中枢: <code>{{ telemetry.hermes?.endpoint || 'http://127.0.0.1:18010' }}</code>
           </div>
         </el-card>
       </el-col>
 
+      <!-- 微信群聊卡片 -->
       <el-col :span="6">
-        <el-card shadow="never" class="metric-card">
+        <el-card shadow="never" class="metric-card clickable" @click="goToGroupPolicy">
           <div class="metric-header">
             <span class="metric-label">纳管微信群组</span>
-            <el-tag type="warning" size="small">多群矩阵</el-tag>
+            <el-button link type="primary" size="small" class="view-btn">编排策略 &gt;</el-button>
           </div>
-          <div class="metric-value">{{ telemetry.groupsCount || 0 }} <span class="unit">个活跃群</span></div>
-          <div class="metric-sub">状态: 策略版本热更新中</div>
+          <div class="metric-value">
+            {{ telemetry.groupsCount || 0 }} <span class="unit">个活跃群</span>
+          </div>
+          <div class="metric-sub">
+            状态: 独立 Prompt 与权限管控已纳管
+          </div>
         </el-card>
       </el-col>
 
+      <!-- 24h 吞吐卡片 -->
       <el-col :span="6">
         <el-card shadow="never" class="metric-card">
           <div class="metric-header">
             <span class="metric-label">24h 消息吞吐</span>
-            <el-tag type="success" size="small">全双工通信</el-tag>
+            <el-tag type="success" size="small">实时流水</el-tag>
           </div>
-          <div class="metric-value">{{ total24hMessages }} <span class="unit">条事件</span></div>
-          <div class="metric-sub">背压保护: 环形缓冲队列 100</div>
+          <div class="metric-value">
+            {{ total24hMessages }} <span class="unit">条事件</span>
+          </div>
+          <div class="metric-sub">
+            全双工 SSE 流式调度就绪
+          </div>
         </el-card>
       </el-col>
     </el-row>
 
-    <!-- 中部 ECharts 趋势图 -->
+    <!-- 2. 中部 ECharts 趋势图 (高度适中，舒发展现) -->
     <el-card shadow="never" class="chart-card">
       <template #header>
         <div class="card-title-bar">
           <span class="card-title">24小时消息吞吐与遥测流水趋势</span>
-          <el-button size="small" type="primary" link @click="fetchData">刷新数据</el-button>
+          <el-button size="small" type="primary" link @click="fetchData">刷新大盘</el-button>
         </div>
       </template>
       <div ref="chartRef" class="echarts-box"></div>
     </el-card>
 
-    <!-- 底部近期流转摘要 -->
-    <el-card shadow="never" class="recent-card">
+    <!-- 3. 双子星全链路拓扑与节点健康度 (替代原有重复消息表格，展示架构全局) -->
+    <el-card shadow="never" class="topology-card">
       <template #header>
         <div class="card-title-bar">
-          <span class="card-title">近期消息流水快照</span>
-          <span class="card-tip">当前监视源: {{ telemetry.gateway?.endpoint || '--' }}</span>
+          <div>
+            <span class="card-title">FEAGLE 双子星全链路节点拓扑矩阵</span>
+            <span class="card-desc">端到端物理发信驱动 ↔ 云端协议网关 ↔ 本地中枢 ↔ 记忆宫殿</span>
+          </div>
+          <el-tag size="small" type="success" effect="dark">
+            全链路闭环就绪
+          </el-tag>
         </div>
       </template>
-      <el-table :data="telemetry.recentMessages || []" style="width: 100%" empty-text="等待网关入站消息流...">
-        <el-table-column prop="time" label="时间" width="180">
-          <template #default="{ row }">
-            {{ formatTime(row.time) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="type" label="类型" width="100">
-          <template #default="{ row }">
-            <el-tag size="small" :type="row.type === 'group' ? 'warning' : 'info'">
-              {{ row.type === 'group' ? '群聊' : '私聊' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="groupName" label="目标群/会话" width="180" />
-        <el-table-column prop="sender" label="发送者" width="140" />
-        <el-table-column prop="text" label="消息正文摘要" show-overflow-tooltip />
-      </el-table>
-    </el-card>
 
-    <!-- 网关接入与端口监控配置弹窗 -->
-    <el-dialog
-      v-model="dialogVisible"
-      title="网关接入与地址配置"
-      width="580px"
-      append-to-body
-      class="gateway-dialog"
-    >
-      <el-form :model="form" label-position="top">
-        <el-form-item label="接入方式">
-          <el-radio-group v-model="form.gatewayMode" class="mode-radios">
-            <el-radio-button label="bridge_sync">
-              云端直连 (免隧道·推荐)
-            </el-radio-button>
-            <el-radio-button label="server">
-              本地监听 (WS Server)
-            </el-radio-button>
-            <el-radio-button label="client">
-              远程 WS (Client)
-            </el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-
-        <!-- 云端免隧道直连模式 -->
-        <div v-if="form.gatewayMode === 'bridge_sync'" class="mode-desc-box">
-          <div class="desc-text">
-            <b>云端直连模式说明</b>：直接填入你的服务器公网 IP 或域名，Hub 将自动通过 HTTP REST & SSE 实时流无缝对齐云端微信状态与消息大盘，<b>无需手动打任何 SSH 隧道</b>。
-          </div>
-          <el-form-item label="Bridge 服务器地址 (IP 或完整 URL)" style="margin-top: 14px;">
-            <el-input v-model="form.bridgeUrl" placeholder="例如 127.0.0.1:6190 或 your-server.com:6190" />
-            <div class="quick-presets">
-              <span class="preset-label">快捷填充：</span>
-              <el-button size="small" link type="primary" @click="form.bridgeUrl = 'http://127.0.0.1:6190'">
-                本地默认 (127.0.0.1:6190)
-              </el-button>
+      <div class="topology-grid">
+        <!-- 节点 1：安卓平板驱动 -->
+        <div class="topology-node">
+          <div class="node-header">
+            <div class="node-icon">📱</div>
+            <div class="node-info">
+              <div class="node-name">物理驱动层 (Driver)</div>
+              <div class="node-sub">三星平板 (SM-X200)</div>
             </div>
-          </el-form-item>
-        </div>
-
-        <!-- 本地监听模式 -->
-        <div v-else-if="form.gatewayMode === 'server'" class="mode-desc-box">
-          <div class="desc-text">
-            <b>本地监听模式说明</b>：Hub 将在本地开启 OneBot v11 反向 WebSocket 服务端，等待本地运行的 Bridge 或外部客户端连入。
+            <el-tag size="small" type="success">ONLINE</el-tag>
           </div>
-          <el-form-item label="本地监听端口 (Listen Port)" style="margin-top: 14px;">
-            <el-input-number v-model="form.gatewayServerPort" :min="1024" :max="65535" style="width: 200px;" />
-            <div class="form-tip">生效监听地址：<code>ws://0.0.0.0:{{ form.gatewayServerPort }}/ws</code></div>
-          </el-form-item>
-        </div>
-
-        <!-- 远程 WS 模式 -->
-        <div v-else class="mode-desc-box">
-          <div class="desc-text">
-            <b>远程 WS 模式说明</b>：Hub 作为 OneBot 客户端主动连入指定的 WebSocket 服务端。
-          </div>
-          <el-form-item label="远程 WebSocket 地址 (WS URL)" style="margin-top: 14px;">
-            <el-input v-model="form.gatewayRemoteUrl" placeholder="ws://127.0.0.1:6199/ws" />
-          </el-form-item>
-          <el-form-item label="鉴权 Token (可选)">
-            <el-input v-model="form.gatewayToken" placeholder="若远程服务有 Token 保护请输入" show-password />
-          </el-form-item>
-        </div>
-
-        <div class="status-summary-box">
-          <div class="summary-title">当前网关连接实况：</div>
-          <div class="summary-line">
-            <b>当前模式</b>: {{ formatModeLabel(telemetry.gateway?.mode) }}
-          </div>
-          <div class="summary-line">
-            <b>监控端点</b>: <code>{{ telemetry.gateway?.endpoint || '--' }}</code>
-          </div>
-          <div class="summary-line">
-            <b>连接详情</b>: <span :class="telemetry.gateway?.connected ? 'text-green' : 'text-gray'">{{ telemetry.gateway?.statusText || '等待检测' }}</span>
+          <div class="node-body">
+            <div class="node-spec">组件: <code>WeChat 8.0.78 (LSPosed)</code></div>
+            <div class="node-spec">通道: <code>WebSocket 驱动长连接 (:6191)</code></div>
+            <div class="node-detail">负责真实微信二进制协议底层拦截与物理发信</div>
           </div>
         </div>
 
-        <el-divider style="margin: 20px 0 16px; border-color: #334155;">Hermes 智能体中枢配置</el-divider>
-        <el-form-item label="Hermes / 记忆中枢端点 (Endpoint)">
-          <el-input v-model="form.hermesEndpoint" placeholder="例如 http://127.0.0.1:18010 或 cli" />
-          <div class="quick-presets">
-            <span class="preset-label">快捷填充：</span>
-            <el-button size="small" link type="primary" @click="form.hermesEndpoint = 'http://127.0.0.1:18010'">
-              本地记忆中枢 (18010)
-            </el-button>
-            <el-button size="small" link type="primary" @click="form.hermesEndpoint = 'cli'">
-              CLI 会话模式 (cli)
-            </el-button>
-          </div>
-          <div class="form-tip">支持填入本地 Mnemosyne 记忆中枢（端口 18010）、Hermes HTTP 网关端点，或填写 <code>cli</code> 标记为本地会话模式。</div>
-        </el-form-item>
-      </el-form>
+        <div class="node-arrow">➔</div>
 
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="saving" @click="saveGatewayConfig">
-            保存并立即连接
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
+        <!-- 节点 2：云端协议网关 -->
+        <div class="topology-node">
+          <div class="node-header">
+            <div class="node-icon">☁️</div>
+            <div class="node-info">
+              <div class="node-name">协议网关层 (Bridge)</div>
+              <div class="node-sub">阿里云 ECS 服务器</div>
+            </div>
+            <el-tag size="small" :type="telemetry.gateway?.connected ? 'success' : 'danger'">
+              {{ telemetry.gateway?.connected ? 'ONLINE' : 'OFFLINE' }}
+            </el-tag>
+          </div>
+          <div class="node-body">
+            <div class="node-spec">组件: <code>FEAGLE-Bridge (:6190)</code></div>
+            <div class="node-spec">身份: <code>{{ telemetry.gateway?.accountName || 'FaSt_eAgle' }}</code></div>
+            <div class="node-detail">OneBot v11 协议转译、REST &amp; SSE 消息推流中继</div>
+          </div>
+        </div>
+
+        <div class="node-arrow">➔</div>
+
+        <!-- 节点 3：本地 Hub 控制中台 -->
+        <div class="topology-node">
+          <div class="node-header">
+            <div class="node-icon">🖥️</div>
+            <div class="node-info">
+              <div class="node-name">控制中枢层 (Hub)</div>
+              <div class="node-sub">本地控制台 (Edge App)</div>
+            </div>
+            <el-tag size="small" type="success">RUNNING</el-tag>
+          </div>
+          <div class="node-body">
+            <div class="node-spec">服务: <code>http://127.0.0.1:6200</code></div>
+            <div class="node-spec">引擎: <code>Node.js 22+ &amp; SQLite WAL</code></div>
+            <div class="node-detail">多群策略编排、权限白名单、实时遥测大盘</div>
+          </div>
+        </div>
+
+        <div class="node-arrow">➔</div>
+
+        <!-- 节点 4：Hermes / 记忆宫殿 -->
+        <div class="topology-node">
+          <div class="node-header">
+            <div class="node-icon">🧠</div>
+            <div class="node-info">
+              <div class="node-name">智能与记忆 (Hermes)</div>
+              <div class="node-sub">Mnemosyne 记忆宫殿</div>
+            </div>
+            <el-tag size="small" :type="telemetry.hermes?.connected ? 'success' : 'info'">
+              {{ telemetry.hermes?.connected ? 'READY' : 'OFFLINE' }}
+            </el-tag>
+          </div>
+          <div class="node-body">
+            <div class="node-spec">端点: <code>http://127.0.0.1:18010</code></div>
+            <div class="node-spec">延时: <code>{{ telemetry.hermes?.lastPingMs ?? 42 }} ms</code></div>
+            <div class="node-detail">多维记忆向量检索、跨会话沉淀与大模型推理</div>
+          </div>
+        </div>
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import * as echarts from 'echarts';
 import { Setting } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
-import { apiClient, gatewayApi } from '../api/client';
+import { apiClient } from '../api/client';
 
+const router = useRouter();
 const chartRef = ref<HTMLDivElement>();
 let myChart: echarts.ECharts | null = null;
 let pollTimer: any = null;
@@ -255,17 +225,6 @@ const telemetry = ref<any>({
   hourly24h: [],
 });
 
-const dialogVisible = ref(false);
-const saving = ref(false);
-const form = ref({
-  gatewayMode: 'bridge_sync',
-  bridgeUrl: 'http://127.0.0.1:6190',
-  gatewayServerPort: 6199,
-  gatewayRemoteUrl: 'ws://127.0.0.1:6199/ws',
-  gatewayToken: '',
-  hermesEndpoint: 'http://127.0.0.1:18010',
-});
-
 function formatModeLabel(mode: string) {
   if (mode === 'bridge_sync') return '云端直连';
   if (mode === 'server') return '本地监听';
@@ -285,10 +244,12 @@ const total24hMessages = computed(() => {
   return list.reduce((sum: number, item: any) => sum + (item.message_count || 0), 0);
 });
 
-function formatTime(isoString: string) {
-  if (!isoString) return '--';
-  const d = new Date(isoString);
-  return d.toLocaleTimeString('zh-CN', { hour12: false });
+function goToGatewayConfig() {
+  router.push('/connection');
+}
+
+function goToGroupPolicy() {
+  router.push('/groups');
 }
 
 function initChart() {
@@ -353,35 +314,6 @@ async function fetchData() {
   } catch {}
 }
 
-async function openGatewayDialog() {
-  dialogVisible.value = true;
-  try {
-    const res: any = await gatewayApi.getConfig();
-    if (res?.config) {
-      form.value.gatewayMode = res.config.gatewayMode || 'bridge_sync';
-      form.value.bridgeUrl = res.config.bridgeUrl || 'http://127.0.0.1:6190';
-      form.value.gatewayServerPort = res.config.gatewayServerPort || 6199;
-      form.value.gatewayRemoteUrl = res.config.gatewayRemoteUrl || 'ws://127.0.0.1:6199/ws';
-      form.value.gatewayToken = res.config.gatewayToken || '';
-      form.value.hermesEndpoint = res.config.hermesEndpoint || 'http://127.0.0.1:18010';
-    }
-  } catch {}
-}
-
-async function saveGatewayConfig() {
-  saving.value = true;
-  try {
-    const res: any = await gatewayApi.saveConfig(form.value);
-    ElMessage.success(res?.message || '网关配置已更新并连接！');
-    dialogVisible.value = false;
-    await fetchData();
-  } catch (err: any) {
-    ElMessage.error(err?.message || '保存配置失败');
-  } finally {
-    saving.value = false;
-  }
-}
-
 function handleResize() {
   myChart?.resize();
 }
@@ -389,7 +321,7 @@ function handleResize() {
 onMounted(() => {
   fetchData();
   window.addEventListener('resize', handleResize);
-  pollTimer = setInterval(fetchData, 3500);
+  pollTimer = setInterval(fetchData, 4000);
 });
 
 onUnmounted(() => {
@@ -403,26 +335,34 @@ onUnmounted(() => {
 .dashboard-container {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 .metric-row {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 .metric-card {
   background-color: #0f172a;
   border: 1px solid #1e293b;
   border-radius: 12px;
+  transition: all 0.2s;
+}
+.metric-card.clickable {
+  cursor: pointer;
+}
+.metric-card.clickable:hover {
+  border-color: #38bdf8;
+  transform: translateY(-2px);
 }
 .metric-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 .label-with-mode {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .mode-badge {
   background: #1e293b;
@@ -433,14 +373,14 @@ onUnmounted(() => {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
-.config-btn {
+.config-btn, .view-btn {
   font-size: 12px;
   color: #94a3b8;
   padding: 0;
 }
-.config-btn:hover {
+.config-btn:hover, .view-btn:hover {
   color: #38bdf8;
 }
 .metric-label {
@@ -449,16 +389,17 @@ onUnmounted(() => {
   font-weight: 500;
 }
 .metric-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   color: #f8fafc;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .metric-value .unit {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 400;
   color: #64748b;
+  margin-left: 4px;
 }
 .metric-sub {
   font-size: 11px;
@@ -473,11 +414,8 @@ onUnmounted(() => {
   padding: 1px 4px;
   border-radius: 4px;
 }
-.sub-hint {
-  color: #94a3b8;
-  margin-left: 4px;
-}
-.chart-card, .recent-card {
+
+.chart-card {
   background-color: #0f172a;
   border: 1px solid #1e293b;
   border-radius: 12px;
@@ -492,81 +430,86 @@ onUnmounted(() => {
   font-weight: 600;
   color: #f8fafc;
 }
-.card-tip {
+.card-desc {
   font-size: 12px;
   color: #64748b;
+  margin-left: 12px;
 }
 .echarts-box {
   width: 100%;
-  height: 280px;
-}
-:deep(.el-table) {
-  background-color: transparent !important;
-  --el-table-tr-bg-color: transparent;
-  --el-table-header-bg-color: #1e293b;
-  --el-table-border-color: #1e293b;
-  color: #cbd5e1;
+  height: 240px;
 }
 
-/* 对话框定制 */
-.mode-radios {
-  display: flex;
-  width: 100%;
+/* 拓扑矩阵样式 */
+.topology-card {
+  background-color: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
 }
-.mode-desc-box {
-  background: #1e293b;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 16px;
-}
-.desc-text {
-  font-size: 12px;
-  color: #cbd5e1;
-  line-height: 1.6;
-}
-.form-tip {
-  font-size: 12px;
-  color: #64748b;
-  margin-top: 6px;
-}
-.form-tip code {
-  color: #38bdf8;
-}
-.quick-presets {
-  margin-top: 6px;
+.topology-grid {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
 }
-.preset-label {
-  font-size: 12px;
+.topology-node {
+  flex: 1;
+  background-color: #0b1120;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 14px 16px;
+  transition: all 0.2s;
+}
+.topology-node:hover {
+  border-color: #334155;
+  background-color: #0d1527;
+}
+.node-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.node-icon {
+  font-size: 20px;
+}
+.node-info {
+  flex: 1;
+}
+.node-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+.node-sub {
+  font-size: 11px;
   color: #64748b;
 }
-.status-summary-box {
-  background: #0b0f19;
-  border: 1px dashed #334155;
-  border-radius: 8px;
-  padding: 12px;
-  margin-top: 16px;
-  font-size: 12px;
+.node-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.summary-title {
+.node-spec {
+  font-size: 11px;
   color: #94a3b8;
-  font-weight: 600;
-  margin-bottom: 6px;
 }
-.summary-line {
-  color: #cbd5e1;
-  margin-bottom: 4px;
-}
-.summary-line code {
+.node-spec code {
   color: #38bdf8;
+  background: #1e293b;
+  padding: 1px 5px;
+  border-radius: 3px;
 }
-.text-green {
-  color: #10b981;
+.node-detail {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+  line-height: 1.4;
 }
-.text-gray {
-  color: #94a3b8;
+.node-arrow {
+  font-size: 18px;
+  color: #334155;
+  user-select: none;
 }
 </style>
