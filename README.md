@@ -1,366 +1,136 @@
-# FEAGLE WxBot 微信 AI 智能体生态全栈套件
+# FEAGLE Gateway
 
 <p align="center">
-  <b>全栈解耦 · 自由选大脑 · 100% 绿色纯净单机部署 · 平板扫码免密配对 · 工业级内核进程守护</b>
+  <b>Ultra-lightweight WeChat 8.0.78 LSPosed Driver & OneBot v11 Protocol Gateway</b><br>
+  物理硬件拦截 · OneBot v11 标准双向转译 · 指数退避与防刷风控 · 100% 单元测试覆盖
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/WeChat-8.0.78-07C160?logo=wechat&logoColor=white" alt="WeChat">
+  <img src="https://img.shields.io/badge/Protocol-OneBot%20v11-blue" alt="OneBot">
+  <img src="https://img.shields.io/badge/Runtime-Node.js%2022%2B-green?logo=node.js" alt="Node">
+  <img src="https://img.shields.io/badge/Tests-55%2F55%20PASS-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/License-MIT-orange" alt="License">
 </p>
 
 ---
 
-## 📖 目录
+## 📖 项目简介
 
-- [一、 项目全景与设计哲学](#一-项目全景与设计哲学)
-- [二、 全栈分层架构图](#二-全栈分层架构图)
-- [三、 端口拓扑与通信协议矩阵](#三-端口拓扑与通信协议矩阵)
-- [四、 核心子系统与基本原理剖析](#四-核心子系统与基本原理剖析)
-  - [1. 接入层：Android Hook 与动态扫码免密配对](#1-接入层android-hook-与动态扫码免密配对)
-  - [2. 中枢路由层：WeChat Bridge 与安全风控护栏](#2-中枢路由层wechat-bridge-与安全风控护栏)
-  - [3. 推理大脑层：Hermes 智能体 vs AstrBot 插件中枢](#3-推理大脑层hermes-智能体-vs-astrbot-插件中枢)
-  - [4. 记忆子系统：Mnemosyne 本地化与 Node 22 原生 SQLite 垫片](#4-记忆子系统mnemosyne-本地化与-node-22-原生-sqlite-垫片)
-  - [5. Windows 本地编排层：纯终端透明交互向导与多服务进程守护](#5-windows-本地编排层纯终端透明交互向导与多服务进程守护)
-- [五、 数据流转全生命周期](#五-数据流转全生命周期)
-- [六、 快速启动与运维指南](#六-快速启动与运维指南)
-  - [Windows 本地绿色运行与交互式部署向导](#windows-本地绿色运行与交互式部署向导)
-  - [Linux 极速自动化部署](#linux-极速自动化部署)
-  - [系统大夫 (System Doctor) 一键诊断](#系统大夫-system-doctor-一键诊断)
-- [七、 常见问题与排障指南 (FAQ)](#七-常见问题与排障指南-faq)
-- [八、 安全审计与开发约束](#八-安全审计与开发约束)
+**FEAGLE Gateway** 是专为微信智能体生态打造的**极简高性能协议网关**。
+
+不同于传统易被风控封号的 Web 协议（wechat4u/puppeteer）或逆向私有 iPad 协议，FEAGLE Gateway 采用**物理真机 Hook + 标准化协议解耦**路线：
+1. **物理驱动层 (Driver)**：在三星平板或物理安卓机上通过 LSPosed/Xposed 注入真实微信 8.0.78，只做最纯粹的底层报文拦截与物理发信；
+2. **协议网关层 (Bridge)**：在 Linux 云端服务器运行超轻量 Node.js 微服务，将微信私有报文实时转译为行业通用的 **OneBot v11** 标准协议，供上层大模型框架（AstrBot、Hermes Agent 或任意 OneBot 客户端）消费；
+3. **治理控制层 (Hub)**：配套独立的桌面管理大盘 [FEAGLE-Hub](https://github.com/Wdclouds/FEAGLE-Hub)，实现端到端监控与多群 Prompt 编排。
 
 ---
 
-## 一、 项目全景与设计哲学
-
-**FEAGLE WxBot** 是专为极客社群、个人知识助理与私域运营设计的高性能微信智能体生态系统。传统微信机器人生态普遍面临“微信协议与 AI 逻辑深度耦合、升级维护伤筋动骨、外部依赖重（Docker/Postgres）、孤儿进程满地飞、平板配置烦琐易错”等痛点。
-
-本项目基于以下核心设计哲学构建：
-
-1. **核心中枢与下游大脑绝对隔离（Clean Separation）**：
-   微信协议处理（收发、频控、防封、会话映射）与 AI 模型推理（Prompt 组装、Tool Calling、知识库检索）物理级解耦。中枢协议网关 Bridge 对外暴露标准化的 OneBot v11 接口，任何符合标准的 AI 框架均可插拔式接入。
-2. **双大脑自由切换（Dual-Brain Flexibility）**：
-   - **Hermes 深度自主智能体**：面向高阶规划、多轮对话、动态工具调用（Function Calling）与长短期记忆。
-   - **AstrBot 插件生态平台**：面向轻量问答、娱乐小游戏、社群自动化管理，内存占用仅约 150MB。
-3. **100% 绿色纯净单机运行（Zero Heavyweight Overhead）**：
-   - **0 Docker 强制依赖**：Windows 环境下纯绿色原生二进制 + 脚本即可拉起全套系统。
-   - **0 PostgreSQL 依赖**：记忆系统全面改造为 Node.js 22 原生 `node:sqlite` 单文件存储，告别臃肿的 pgvector 容器。
-   - **0 注册表污染与 0 孤儿进程残留**：宿主基于 Windows 内核级 Win32 JobObject 守护，窗口关闭瞬间彻底清理进程树。
-4. **平板接入零配置（Zero-Config Mobile Pairing）**：
-   解决在物理设备（如三星 Galaxy Tab A8）上手工输入长达数十位 WebSocket URL 和 32 位 Token 的痛苦，支持局域网动态 IP 自适应发现与加密二维码扫码即连。
-
----
-
-## 二、 全栈分层架构图
-
-整个系统划分为清晰的五层拓扑结构：
+## 🏗️ 架构全景
 
 ```text
-┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  【接入层：移动终端 / 实体设备】                                   │
-│  物理设备 (三星 Galaxy Tab A8 SM-X200 / 备用安卓机)                                               │
-│  - Xposed / LSPosed 微信 Hook (8.0.x)                                                            │
-│  - FEAGLE Android Agent (WechatHook.java / WebSocket 客户端)                                     │
-│  - 动态免密扫码认证模块 (ZXing 扫码 + Token/PairingCode 自动握手)                                │
-└─────────────────────────────────────────────┬────────────────────────────────────────────────────┘
-                                              │ (WebSocket 局域网/公网 6191)
-                                              ▼
-┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                           【中枢路由层：FEAGLE WeChat Bridge (6190)】                              │
-│  ┌─────────────────────────┐ ┌─────────────────────────┐ ┌────────────────────────────────────┐  │
-│  │ 微信 ↔ OneBot 协议转换  │ │ 工业级防封流控 / 熔断器 │ │ 会话映射与状态机 (mapping.sqlite)  │  │
-│  │ - 消息标准化清洗        │ │ - 群红绿灯模式管控      │ │ - wxid ↔ OneBot user_id 双向索引 │  │
-│  │ - 语音/图片/卡片解析    │ │ - 1~3秒人工拟人停顿抖动 │ │ - 会话活跃度与黑白名单           │  │
-│  └─────────────────────────┘ └─────────────────────────┘ └────────────────────────────────────┘  │
-│  ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ │
-│  │ Control Deck 控制台 Web 服务 (内置 SSE 实时日志、免密配对二维码生成器、System Doctor 体检器) │ │
-│  └─────────────────────────────────────────────────────────────────────────────────────────────┘ │
-└───────────────────────┬──────────────────────────────────────────┬───────────────────────────────┘
-                        │                                          │
-       【分支 A: Hermes 智能体栈】                 【分支 B: AstrBot 插件栈】
-                        ▼                                          ▼
-┌─────────────────────────────────────────────────┐   ┌────────────────────────────────────────────┐
-│         Hermes Agent Gateway (端口 6199)        │   │         AstrBot 平台 (端口 6185)           │
-│  - LLM 统一路由与编排 (DeepSeek / Claude / GPT) │   │  - 开箱即用丰富社群插件生态 (游戏/群管)    │
-│  - ReAct 思考循环与动态工具调用 (Function Call) │   │  - OneBot v11 反向 WebSocket 协议直连     │
-│  - 渠道技能库热加载 (SKILL.md)                  │   │  - 自带可视化管理后台与应用市场            │
-├─────────────────────────────────────────────────┤   └────────────────────────────────────────────┘
-│      Mnemosyne 记忆子系统 (端口 18010 REST)     │
-│  - Node 22 原生 node:sqlite (0 外部数据库依赖)  │
-│  - 短期会话记忆 / 中期性格画像 / 长期文档知识库 │
-│  - 单文件持久化: ./data/mnemosyne.db            │
-└─────────────────────────────────────────────────┘
-                        ▲
-                        │ (Windows 本地多服务编排器)
-┌───────────────────────┴──────────────────────────────────────────────────────────────────────────┐
-│                   【Windows 本地编排层：纯终端交互向导与多服务进程守护】                         │
-│  - 纯终端色彩交互向导 (`setup-windows.bat` / `setup-wizard.js`)，透明可控，告别黑盒 GUI            │
-│  - 1 秒网络测速自动判断国内环境并自动应用 npmmirror / Aliyun PyPI / ghfast.top 镜像加速         │
-│  - 记忆系统 100% 绿色化（纯 Node 22 原生 node:sqlite 单文件，零 Docker / 零 PostgreSQL）          │
-│  - 根目录快捷批处理 (`start-windows.bat` / `feagle-doctor.bat` / `feagle.cmd start`) 一键托管     │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────┐          WebSocket (:6191)         ┌─────────────────────────────────────┐
+│ 📱 物理驱动层 (Driver) │ ─────────────────────────────────> │ ☁️ 协议网关层 (FEAGLE-Bridge)        │
+│ 三星平板 (SM-X200)    │                                    │ 运行于云端 ECS / Linux 服务器       │
+│ WeChat 8.0.78 (Hook)  │ <───────────────────────────────── │ 1. 消息清洗与 wxid ⇄ 数字 ID 双向映射 │
+│ • 物理发信与事件拦截  │           发送回执 / 指令下发        │ 2. OneBot v11 反向/正向 WebSocket   │
+└───────────────────────┘                                    │ 3. 毫秒级频控防刷与安全门禁 (Guard) │
+                                                             └──────────────────┬──────────────────┘
+                                                                                │
+                                              ┌─────────────────────────────────┴───────────────────────────────┐
+                                              │ OneBot v11 反向 WS (:6199)                                      │ HTTP / SSE (:6190)
+                                              ▼                                                                 ▼
+                                 ┌─────────────────────────┐                                       ┌─────────────────────────┐
+                                 │ 🧠 上层 AI 决策大脑     │                                       │ 🖥️ 桌面中枢控制台       │
+                                 │ AstrBot / Hermes Agent  │                                       │ FEAGLE-Hub (Vue 3 + TS) │
+                                 └─────────────────────────┘                                       └─────────────────────────┘
 ```
 
 ---
 
-## 三、 端口拓扑与通信协议矩阵
+## ✨ 核心特性
 
-| 端口 | 服务组件 | 监听地址 | 通信协议 | 功能描述 |
-| :--- | :--- | :--- | :--- | :--- |
-| **6190** | **WeChat Bridge Core** | `0.0.0.0` | HTTP / SSE / WS | 中枢主服务、Web 控制台、REST API、System Doctor 体检器 |
-| **6191** | **Bridge Android Ingress** | `0.0.0.0` | WebSocket | 承接 Android Agent 物理微信客户端的消息上报与指令下发 |
-| **6199** | **Hermes Agent Gateway** | `127.0.0.1` | HTTP / SSE | 深度智能体编排网关、ReAct 思考循环与工具链调度 |
-| **6185** | **AstrBot Web & API** | `127.0.0.1` | HTTP / WS (OneBot) | AstrBot 插件生态平台、反向 WebSocket 事件接收端 |
-| **18010** | **Mnemosyne Memory Shim** | `127.0.0.1` | HTTP REST | 基于 Node 22 原生 SQLite 的长短期记忆 REST 接口 |
-
----
-
-## 四、 核心子系统与基本原理剖析
-
-### 1. 接入层：Android Hook 与动态扫码免密配对
-
-#### 传统方案痛点
-在专用平板（如 Samsung Tab A8）上部署微信机器人时，移动端软键盘输入公网 IP、动态端口（6191）及长达 32 位的加盐 Token 极易出错；且局域网 DHCP 动态变更会导致连接失效。
-
-#### 扫码免密配对原理
-```text
-[桌面端/Web 控制台]                                               [Android Agent 平板端]
-      │                                                                  │
-      ├─ 1. 读取网卡列表: 自动剔除 127.0.0.1，提取真实内网 IP (如 192.168.1.100) │
-      ├─ 2. 调用 /api/device/pair-code 生成一次性加密配对码 (5分钟有效)   │
-      ├─ 3. 将 { endpoint, token, pairingCode, timestamp } 编码为二维码 │
-      │                                                                  │
-      │                     ◄─── 4. 摄像头扫描屏幕二维码 ───────────────┤
-      │                                                                  │
-      │ 5. 发起 WS 握手: ws://192.168.1.100:6191/android?mode=pair       │
-      │ ◄────────────────────────────────────────────────────────────────┤
-      │ 6. Bridge 校验 pairingCode 签名，下发正式长效连接凭证              │
-      ├─────────────────────────────────────────────────────────────────►│
-      │ 7. 自动写入 Android SharedPreferences，立即进入在线监听状态       │
-```
-- **OTA 静默自更新**：Agent 建立连接后上报当前客户端版本号，Bridge 校验发现新版时，通过 `/api/device/download-agent` 推送更新包，借助设备的 Root 权限实现后台静默自升级。
+- 🛡️ **真机物理级防封**：依托 Android LSPosed Vector 框架拦截微信 8.0.78 原生事件，发信完全模拟真机行为，彻底告别 Web 协议大面积封号风险。
+- 🔄 **OneBot v11 标准全双工通信**：
+  - 原生支持私聊文本、群聊文本、@成员、表情包（Type 47）、名片、位置等多类型报文；
+  - 采用 SQLite（WAL 模式）维护 `wxid` / `chatroom` 与 OneBot 32位数字 ID 的双向稳定映射，重启不漂移。
+- ⚡ **工业级连接与风控加固**：
+  - **指数退避与抖动**：内置 `calculateReconnectDelay`（1s~30s + Full Jitter），拒绝断网重连风暴；
+  - **TCP 假死自愈**：底层 Ping/Pong 探活，遇到半开连接自动调用 `ws.terminate()` 强制回收；
+  - **防刷风控门禁 (Message Guard)**：自动拦截毫秒级超高频输入，保护微信小号免遭腾讯拦截封禁；
+  - **零内存泄漏**：严格解绑 EventEmitter 与定时器，常驻内存仅数十兆。
+- 📜 **完整 TypeScript 类型契约**：在 `packages/protocol` 提供完整的 OneBot v11 与 Feagle Android 契约声明与自动检查工具。
+- 🧪 **55 项单元自动化测试 100% 通过**：全量回归测试套件守护（`hermes verify`）。
 
 ---
 
-### 2. 中枢路由层：WeChat Bridge 与安全风控护栏
-
-Bridge（位于 `apps/bridge`）是整个生态的“主板中枢”，具备工业级消息清洗、映射与防封风控能力：
-
-#### (1) 协议双向映射
-- **上行（Ingress）**：将 Android Hook 捕获的底层微信原始 XML、富文本、卡片、群聊变更清洗为标准化 OneBot v11 JSON 事件。
-- **下行（Egress）**：将 AI 后端输出的文本、Markdown、图片 URL 组装为 Android Hook 能执行的原生指令（`send_text_message`, `send_image_message`）。
-- **双向 ID 索引**：通过轻量 `data/wechat/mapping.sqlite` 维护微信字符串 ID（`wxid_xxx` / `xxx@chatroom`）与 OneBot 数值 ID（`10000000xx`）的高性能互查索引。
-
-#### (2) 工业级微信防封护栏
-为防止微信账号因高频并发或异常行为触发风控，Bridge 内置了四大防护机制：
-1. **红绿灯模式独立管控**：
-   - `MENTION_ONLY（仅艾特回复，绿灯）`：群内仅在明确被 @ 时触发回复；
-   - `OBSERVE（仅观察记录，黄灯）`：仅上报对话用于群聊热点摘要与长期记忆，绝对不主动发声；
-   - `OFF（完全离线，红灯）`：直接阻断该群一切事件。
-2. **拟人化防封抖动（Jitter）**：
-   每个群独立维持冷却队列（默认 5 秒），并在机器人回复内容生成后，随机注入 **1000ms ~ 3000ms** 的思考停顿时间，消除机器人瞬间秒回特征。
-3. **高频突变自动熔断器**：
-   当某群在短时间内出现恶意刷屏或短文本轰炸时，自动触发该群熔断保护（降级为 OBSERVE 模式 15 分钟），并倒计时自动恢复。
-4. **夜间免打扰静音计划**：
-   默认预设 `00:00 - 07:00` 为静默时段，非豁免会话一律静默阻断，控制台支持一键【解除时限 / 恢复时限】。
-
----
-
-### 3. 推理大脑层：Hermes 智能体 vs AstrBot 插件中枢
-
-系统彻底打破了单一框架的局限性，在 Bridge 背后支持无缝接入两种截然不同的大脑：
-
-#### 分支 A：Hermes 深度自主思考智能体（端口 6199）
-- **核心定位**：具备自主规划、工具调用、长期记忆的严肃生产力 Agent。
-- **ReAct 思考循环**：支持多步推理（Thought → Action → Observation → Thought），自动调用天气、维基百科、代码执行等外部工具。
-- **动态技能库（Skills）**：每个群聊频道可挂载独立私有技能目录（`SKILL.md`），用户修改 Markdown 文件即可动态赋予机器人专业领域知识。
-- **多模型无缝路由**：支持 DeepSeek-R1、Claude 3.5 Sonnet、OpenAI GPT-4o 等多种主流模型。
-
-#### 分支 B：AstrBot 官方插件生态平台（端口 6185）
-- **核心定位**：高扩展性、趣味互动与社群运营。
-- **海量现成生态**：开箱即用社群开源的数百款插件（搜歌、早报、星座运势、群管黑名单、趣味小游戏等）。
-- **极度轻量低开销**：单容器/单进程内存占用仅 ~150MB，即使在 1 核 2G 的轻量服务器上也能顺畅运行。
-
----
-
-### 4. 记忆子系统：Mnemosyne 本地化与 Node 22 原生 SQLite 垫片
-
-#### 传统记忆系统的弊端
-原版 Mnemosyne 强依赖 Docker 运行 PostgreSQL + `pgvector` 向量扩展，内存常驻开销超 500MB，且对 Windows 单机环境极不友好。
-
-#### 本地原生化架构创新（Node 22 `node:sqlite`）
-在 Phase 1 中，系统实现了 **纯本地化 18010 REST 记忆垫片**：
-- **0 外部容器依赖**：基于 Node.js 22 自带的官方原生 C++ SQLite 绑定（`node:sqlite`），单文件无任何额外二进制依赖。
-- **本地单文件持久化**：所有记忆数据直接安全落盘于本地 `./data/mnemosyne.db`。
-- **三层递进式记忆模型**：
-  1. **短期会话流（Session Stream）**：保留滑动窗口上下文，支撑多轮对话连贯性；
-  2. **中期个性画像（Personas & Beliefs）**：按联系人聚类性格特征、偏好、沟通风格；
-  3. **长期知识文档库（Doc Vault）**：针对群聊技术方案、文档规范进行分块索引与按需召回。
-
----
-
-### 5. Windows 本地编排层：纯终端透明交互向导与多服务进程守护
-
-为了兼顾 CLI 极客运维与小白开箱即用，系统采用**核心业务与宿主彻底解耦的架构**：
-- **纯终端交互向导 (`setup-windows.bat` / `setup-wizard.js`)**：透明可控，1 秒网络测速自动判断国内环境并应用镜像加速；
-- **一键启动本地全套服务 (`start-windows.bat` / `.\feagle.cmd start`)**：纯终端拉起 Bridge、目标大脑与记忆伴随；
-- **原生桌面端与 GitHub Releases 分发 (`apps/desktop-electron/` / `.\feagle.cmd desktop`)**：
-  - 基于 Electron 打造 Windows 独立窗口宿主，集成系统托盘驻留、后台免打扰静默运行与实时日志流监控；
-  - **核心解耦独立热更新**：通过 `extraResources` 将 Bridge 与 Mnemosyne Shim 外置抽离于 `resources/core/` 目录中。当核心代码迭代或修复 Bug 时，用户仅需下载 1~2MB 补丁覆盖即可热升级，**杜绝每次重新打包下载 80MB+ 笨重安装包**；
-  - **单实例与零孤儿进程**：应用具备单例互斥锁保护，托盘退出时递归清理全部子进程树，零后台残留。
-
----
-
-## 五、 数据流转全生命周期
-
-以一条好友微信消息在系统内的完整流转为例：
+## 📁 目录结构
 
 ```text
-1. 外部微信好友发送: "帮我总结一下昨天的群聊讨论"
-   │
-2. 三星平板 Android Hook 拦截该底层消息，提取原始报文
-   │ (WebSocket 加密上报)
-   ▼
-3. Bridge (6190) 接收报文:
-   ├─ 查表 mapping.sqlite: 将 wxid 映射为 OneBot 格式 ID
-   ├─ 检查风控白名单与时限策略 (未触发熔断/在活跃时段)
-   └─ 转换封装为 OneBot v11 message_event
-   │ (HTTP / WS 分发)
-   ▼
-4. Hermes 智能体 (6199) 接管分析:
-   ├─ 提取意图: 需要群聊总结知识
-   ├─ 向 Mnemosyne (18010) 查询目标群的最近群聊记忆摘要与日志
-   ├─ 组装 Prompt 喂给 LLM 驱动推理 (生成精炼总结)
-   └─ 返回最终回复文本
-   │
-5. Bridge (6190) 接收 AI 生成的回复:
-   ├─ 注入 1~3 秒人工模拟阅读停顿抖动 (Jitter)
-   └─ 封装为 Android Hook 发送动作
-   │ (WebSocket 下发)
-   ▼
-6. Android Agent 执行底层微信调用，原路将消息发送至好友聊天窗
+FEAGLE-Gateway/
+├── apps/
+│   ├── android-agent/    # 📱 Android 微信 8.0.78 LSPosed Hook 驱动源码 (Java)
+│   └── bridge/           # ☁️ Node.js 极简协议网关服务 (OneBot v11 / REST / SSE)
+├── packages/
+│   └── protocol/         # 📜 OneBot v11 & Android Bridge TypeScript 契约声明
+├── archive/              # 🗄️ 旧版本与废弃代码封存目录
+├── feagle.cmd            # 终端控制命令行工具
+└── README.md
 ```
 
 ---
 
-## 六、 快速启动与运维指南
+## 🚀 快速启动指南
 
-### Windows 本地绿色运行与交互式部署向导
+### 1. 服务端 Bridge 部署 (Ubuntu / Debian / ECS)
 
-1. **首次部署与交互向导 (方案 1)**：
-   直接双击运行项目根目录下的 **`setup-windows.bat`** 或在终端执行：
-   ```powershell
-   .\feagle.cmd setup
-   ```
-   - 自动检测 Node.js 22 (node:sqlite) 与 Python 运行环境；
-   - 1 秒极速网络探测，智能判定国内网络并提供镜像加速；
-   - 引导选择安装 **Hermes** 或 **AstrBot**，支持自定义安装目录；
-   - 若选择 Hermes，自动就绪基于原生 SQLite 的 18010 独立记忆伪装服务；
-   - 探测各核心端口并保存配置至 `.env`。
-
-2. **桌面客户端运行与 GitHub Releases 打包 (`feagle.cmd desktop`)**：
-   - 检查桌面端就绪状态：
-     ```powershell
-     .\feagle.cmd desktop check
-     ```
-   - 启动桌面客户端本地开发调试：
-     ```powershell
-     .\feagle.cmd desktop dev
-     ```
-   - 打包生成 Windows 便携免安装版与安装程序（输出至 `dist/desktop/`）：
-     ```powershell
-     .\feagle.cmd desktop build
-     ```
-   - 托盘图标右键支持【打开控制台】、【在外部浏览器打开】、【查看实时运行日志】、【重启核心服务】与【彻底退出】。
-
-3. **一键启动纯终端命令行本地服务**：
-   双击运行项目根目录下的 **`start-windows.bat`** 或在终端执行：
-   ```powershell
-   .\feagle.cmd start
-   ```
-   - 编排拉起 WeChat Bridge (6190/6191)、目标大脑（AstrBot/Hermes）与 Mnemosyne 记忆伪装 (18010)；
-   - 自动在默认浏览器中打开控制台 `http://127.0.0.1:6190`；
-   - 终端中 `Ctrl + C` 即可优雅关闭全套进程树。
-
-3. **系统大夫与安卓诊断工具**：
-   ```powershell
-   # 快速系统健康诊断
-   .\feagle.cmd doctor
-
-   # 检查安卓平板 Hook 连接
-   .\feagle.cmd android doctor
-   ```
-
----
-
-### Linux 极速自动化部署
-
-针对 Ubuntu/Debian/CentOS 云服务器，提供一键引导安装器：
+推荐部署在具备公网 IP 的 Linux 服务器上（如阿里云 ECS）：
 
 ```bash
-bash install.sh
-```
-- 自动完成国内镜像加速测速；
-- 终端图形化选择大脑类型（Hermes 还是 AstrBot）；
-- 自动写入 `.env` 凭证并拉起对应的轻量服务栈。
+# 1. 确保安装了 Node.js 22.0.0+
+node -v
 
----
-
-### 系统大夫 (System Doctor) 一键诊断
-
-系统内置了五维并发非阻塞 TCP 健康诊断引擎：
-
-- **桌面控制台**：直接访问 `http://127.0.0.1:6190/api/doctor`
-- **Windows 命令行一键自检**：直接双击运行项目根目录下的 **`feagle-doctor.bat`**
-
-输出样例：
-```text
-============================================================
-           FEAGLE WxBot 系统体检大夫 (System Doctor)
-============================================================
-[运行环境]
-  - 操作系统: win32 x64 (Windows 11)
-  - Node.js : v22.14.0 (支持 原生 node:sqlite)
-  - Python  : Python 3.12.13
-[网络端口与核心服务]
-  [OK] 6190 - WeChat Bridge 控制台/主服务 (正在运行)
-  [OK] 6191 - Android Hook Agent (正在监听)
-  [OK] 6185 - AstrBot 插件中枢 Web/API (活跃中)
-  [OK] 18010 - Mnemosyne 本地记忆库 (活跃中)
-[微信连接状态]
-  - 当前登录微信: FaSt_eAgle (Android Hook 在线)
-  - 管理模式: RUNNING (正常响应)
-============================================================
+# 2. 安装依赖并启动
+cd apps/bridge
+npm install
+npm start
 ```
 
----
+服务默认监听以下端口：
+* **`6190`**：Bridge 控制台与 REST / SSE 遥测端点（供 Hub 直连）；
+* **`6191`**：Android Agent WebSocket 接入端点（`/android`）；
+* **`6199`**：OneBot v11 反向 WebSocket 连接端点（`/ws`）。
 
-## 七、 常见问题与排障指南 (FAQ)
+> **推荐使用 systemd 守护进程**：可配置 `hermes-wxbridge.service` 实现开机自启与崩溃秒级拉起。
 
-#### Q1: 桌面客户端提示“连接超时”或加载失败如何处理？
-1. 点击启动界面上的 **【查看实时日志】**，展开查看 Node.js 进程真实输出；
-2. 点击 **【一键复制错误日志】**，将格式化诊断报告复制以便排查；
-3. 点击 **【在浏览器打开】**，直接在 Edge/Chrome 访问 `http://127.0.0.1:6190`。
+### 2. 平板端驱动配对 (Android SM-X200)
 
-#### Q2: 如何切换 AI 大脑（Hermes 与 AstrBot）？
-修改项目根目录下的 `.env` 文件中的 `BOT_BACKEND` 配置：
-- `BOT_BACKEND=hermes`：启用 Hermes 深度思考模式（需开启 6199 Gateway）；
-- `BOT_BACKEND=astrbot`：启用 AstrBot 插件生态模式（仅需运行 AstrBot 服务）。
-保存后通过控制台或脚本重启 Bridge 即可热生效。
+1. 在已 Root 的设备上安装并激活 **LSPosed**；
+2. 编译并安装 `apps/android-agent` 生成的 APK，在 LSPosed 作用域中勾选 **微信 (WeChat 8.0.78)** 并重启微信；
+3. 打开 FEAGLE Driver 应用，在设置中配置你的服务器端点与鉴权 Token：
+   ```text
+   ws://<你的服务器公网IP>:6191/android
+   ```
+4. 握手成功后，状态将呈现 **`CONNECTED 🟢`**，网关即可开始全双工收发。
 
-#### Q3: 三星平板扫码后为何无法连上 Bridge？
-1. 确保平板与宿主机处于同一个局域网（同一 Wi-Fi 或路由器下）；
-2. 检查宿主机防火墙是否放行了 **6190** 与 **6191** 入站端口；
-3. 控制台二维码支持手动切换下拉框中的局域网 IP，请选择与平板同网段的真实网卡地址。
+### 3. 连接 AI 大脑与桌面中枢
 
----
-
-## 八、 安全审计与开发约束
-
-为了保护开发与生产环境的长期稳定，全套工程严格遵守以下安全红线：
-
-1. **会话保护原则**：严禁在生产微信运行目录下执行破坏性删除操作，保护物理设备微信登录会话，免掉线、免频繁重新扫码。
-2. **凭证隔离原则**：禁止将微信个人数据库密钥、第三方 API Key、加盐 Token 提交至 Git 仓库。所有隐私信息均隔离于 `.env` 与 `data/` 目录。
-3. **绿色轻量基准**：严格限制新增重型中间件，优先采用 Node.js 22 与 Rust 原生能力，杜绝无意义的内存占用。
+* **对接 AI 智能体 (AstrBot / Hermes)**：在 AI 框架的 OneBot v11 配置中，将反向 WebSocket 连接指向 `ws://127.0.0.1:6199/ws`；
+* **桌面可视化治理 (FEAGLE-Hub)**：打开 [FEAGLE-Hub](https://github.com/Wdclouds/FEAGLE-Hub)，在连接配置中填入 `http://<你的服务器公网IP>:6190` 即可免隧道直连大盘！
 
 ---
 
-## 📄 许可证
+## 🧪 自动化测试验证
 
-本项目基于 [MIT License](LICENSE) 授权开源。
+本项目拥有严格的企业级测试套件，在根目录下执行：
+
+```bash
+# 验证协议契约与 Bridge 单测 (55 项全绿)
+npm --prefix apps/bridge test
+```
+
+---
+
+## 📄 开源许可证
+
+本项目基于 [MIT License](LICENSE) 协议开源。
