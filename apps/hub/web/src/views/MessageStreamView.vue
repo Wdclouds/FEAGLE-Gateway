@@ -6,7 +6,7 @@
       <div class="session-search-box">
         <el-input
           v-model="searchKeyword"
-          placeholder="搜索"
+          placeholder="搜索会话"
           size="small"
           clearable
           class="wx-search-input"
@@ -58,7 +58,7 @@
       </div>
     </aside>
 
-    <!-- ===== 右侧：主聊天视窗 ===== -->
+    <!-- ===== 右侧：主聊天视窗 (只读全高监控流) ===== -->
     <main class="wechat-chat-column">
       <!-- 聊天头部 -->
       <header class="chat-header">
@@ -73,14 +73,10 @@
           >
             {{ currentSession.type === 'group' ? '微信群聊' : '私聊会话' }}
           </el-tag>
-          <el-tag
-            v-if="currentSession?.responseMode"
-            size="small"
-            type="success"
-            class="chat-mode-tag"
-          >
-            {{ currentSession.responseMode }}
-          </el-tag>
+          <span class="live-pill">
+            <span class="live-indicator"></span>
+            全双工只读流
+          </span>
         </div>
 
         <div class="chat-header-actions">
@@ -99,11 +95,11 @@
         </div>
       </header>
 
-      <!-- 消息历史滚动区 -->
+      <!-- 消息历史滚动区 (占满整屏高度，无底部输入框) -->
       <div class="chat-messages-body" ref="messagesBodyRef">
         <div v-if="currentMessages.length === 0" class="messages-empty">
           <div class="empty-icon">💬</div>
-          <div>当前会话暂无消息记录</div>
+          <div>当前会话暂无消息流水</div>
           <div class="empty-sub">微信小号收到或发送消息后将在此实时渲染</div>
         </div>
 
@@ -153,44 +149,6 @@
           </div>
         </div>
       </div>
-
-      <!-- 底部输入操作区 -->
-      <footer class="chat-input-area">
-        <!-- 辅助工具栏 -->
-        <div class="input-toolbar">
-          <span class="tool-icon" title="表情" @click="insertQuickText('😊')">😊</span>
-          <span class="tool-icon" title="发送心跳" @click="insertQuickText('@韩立 test')">⚡</span>
-          <span class="tool-icon" title="快捷应答" @click="insertQuickText('收到，状态正常 🫡')">💬</span>
-          <span class="tool-icon" title="换行" @click="insertNewline">↵</span>
-        </div>
-
-        <!-- 多行输入框 -->
-        <div class="input-text-wrapper">
-          <textarea
-            v-model="inputText"
-            class="wx-textarea"
-            :placeholder="currentSession ? `发送给 ${currentSession.name}... (Enter 发送)` : '请先在左侧选择会话...'"
-            :disabled="!currentSession"
-            @keydown.enter.exact.prevent="handleSend"
-            @keydown.ctrl.enter="insertNewline"
-          ></textarea>
-        </div>
-
-        <!-- 底部发送按钮栏 -->
-        <div class="input-bottom-bar">
-          <span class="shortcut-tip">Enter 发送，Ctrl+Enter 换行</span>
-          <el-button
-            type="success"
-            size="small"
-            class="wx-send-btn"
-            :disabled="!currentSession || !inputText.trim()"
-            :loading="sending"
-            @click="handleSend"
-          >
-            发送 (S)
-          </el-button>
-        </div>
-      </footer>
     </main>
   </div>
 </template>
@@ -200,7 +158,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { Search } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
-import { apiClient, messagesApi } from '../api/client';
+import { apiClient } from '../api/client';
 
 interface SessionItem {
   id: string;
@@ -220,6 +178,7 @@ interface ChatMessage {
   groupName?: string;
   sender: string;
   text: string;
+  direction?: 'IN' | 'OUT' | string;
   time: string;
 }
 
@@ -228,11 +187,44 @@ const searchKeyword = ref('');
 const sessions = ref<SessionItem[]>([]);
 const currentSession = ref<SessionItem | null>(null);
 const allMessages = ref<ChatMessage[]>([]);
-const inputText = ref('');
-const sending = ref(false);
 const messagesBodyRef = ref<HTMLDivElement | null>(null);
 
 let eventSource: EventSource | null = null;
+
+// 清洗群聊名称：去除 " / Group member" 等后缀
+function cleanGroupName(name: string) {
+  if (!name) return '';
+  return name.replace(/\s*\/\s*Group\s*member$/i, '').trim();
+}
+
+// 统一将消息规整到标准结构
+function normalizeMessage(raw: any): ChatMessage {
+  const isOut =
+    raw.direction === 'OUT' ||
+    raw.sender === 'FaSt_eAgle' ||
+    raw.sender === '小号' ||
+    raw.sender?.includes('小号') ||
+    raw.sender?.includes('Bot');
+
+  const cleanName = cleanGroupName(raw.groupName || '');
+  const isGroup = raw.type === 'group' || cleanName.includes('群') || cleanName === 'test';
+
+  let sender = raw.sender || (isOut ? 'FaSt_eAgle' : '群成员');
+  if (sender.includes(' / ')) {
+    sender = sender.split(' / ')[1].trim();
+  }
+
+  return {
+    id: raw.id || Date.now() + Math.random(),
+    type: isGroup ? 'group' : 'private',
+    groupId: raw.groupId ? String(raw.groupId) : null,
+    groupName: cleanName,
+    sender,
+    text: raw.text || '',
+    direction: isOut ? 'OUT' : 'IN',
+    time: raw.time || new Date().toISOString(),
+  };
+}
 
 // 根据搜索关键词过滤会话列表
 const filteredSessions = computed(() => {
@@ -243,29 +235,28 @@ const filteredSessions = computed(() => {
   );
 });
 
-// 当前选中会话的消息流水
+// 当前选中会话的消息流水 (严格归集同一群聊的所有消息)
 const currentMessages = computed(() => {
   if (!currentSession.value) return [];
   const activeId = currentSession.value.id;
+  const activeName = cleanGroupName(currentSession.value.name);
   const isGroup = currentSession.value.type === 'group';
 
   return allMessages.value.filter((m) => {
     if (isGroup) {
-      return String(m.groupId) === activeId || m.groupName === currentSession.value?.name;
+      const mName = cleanGroupName(m.groupName || '');
+      return (
+        (m.groupId && String(m.groupId) === activeId) ||
+        mName === activeName ||
+        (activeName && mName.startsWith(activeName))
+      );
     }
     return m.type === 'private' && (m.sender === activeId || m.groupName === activeId);
   });
 });
 
 function isSelfMessage(msg: ChatMessage) {
-  const sender = msg.sender || '';
-  return (
-    sender === 'FaSt_eAgle' ||
-    sender === '小号' ||
-    sender.includes('小号') ||
-    sender.includes('Bot') ||
-    sender.includes('WeChat Bot')
-  );
+  return msg.direction === 'OUT' || msg.sender === 'FaSt_eAgle' || msg.sender === '小号';
 }
 
 function shouldShowTimePill(msg: ChatMessage, index: number) {
@@ -273,7 +264,7 @@ function shouldShowTimePill(msg: ChatMessage, index: number) {
   const prevMsg = currentMessages.value[index - 1];
   if (!prevMsg) return true;
   const diff = Math.abs(new Date(msg.time).getTime() - new Date(prevMsg.time).getTime());
-  return diff > 5 * 60 * 1000; // 相差 5 分钟以上展示时间提示
+  return diff > 5 * 60 * 1000;
 }
 
 function formatSessionTime(isoString: string) {
@@ -282,7 +273,6 @@ function formatSessionTime(isoString: string) {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
 
-  // 如果是今天
   if (d.toDateString() === now.toDateString()) {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
@@ -310,22 +300,14 @@ function selectSession(session: SessionItem) {
   scrollToBottom();
 }
 
-function insertQuickText(text: string) {
-  if (!inputText.value) {
-    inputText.value = text;
-  } else {
-    inputText.value += text;
-  }
-}
-
-function insertNewline() {
-  inputText.value += '\n';
-}
-
 function clearCurrentMessages() {
   if (!currentSession.value) return;
   const activeId = currentSession.value.id;
-  allMessages.value = allMessages.value.filter((m) => String(m.groupId) !== activeId && m.groupName !== currentSession.value?.name);
+  const activeName = cleanGroupName(currentSession.value.name);
+  allMessages.value = allMessages.value.filter((m) => {
+    const mName = cleanGroupName(m.groupName || '');
+    return String(m.groupId) !== activeId && mName !== activeName;
+  });
   if (currentSession.value) {
     currentSession.value.lastMessage = '';
   }
@@ -336,49 +318,16 @@ function goToGroupPolicy(groupId: string) {
   router.push('/groups');
 }
 
-async function handleSend() {
-  if (!currentSession.value || !inputText.value.trim() || sending.value) return;
-
-  const targetId = currentSession.value.id;
-  const type = currentSession.value.type;
-  const text = inputText.value.trim();
-  const groupName = currentSession.value.name;
-
-  sending.value = true;
-  try {
-    const res: any = await messagesApi.sendMessage({
-      type,
-      targetId,
-      text,
-      groupName,
-    });
-
-    if (res?.entry) {
-      allMessages.value.push(res.entry);
-      currentSession.value.lastMessage = text;
-      currentSession.value.lastSender = '小号';
-      currentSession.value.lastTime = res.entry.time;
-    }
-
-    inputText.value = '';
-    scrollToBottom();
-  } catch (err: any) {
-    ElMessage.error(err.message || '发信失败');
-  } finally {
-    sending.value = false;
-  }
-}
-
 // 初始化会话与最近消息
 async function initData() {
   try {
-    // 1. 获取已纳管微信群，作为基础会话项
+    // 1. 获取已纳管的真实微信群 (严格等于系统当前 2 个活跃群)
     const groupsRes: any = await apiClient.get('/groups');
     const groupList = groupsRes?.groups || [];
 
     const loadedSessions: SessionItem[] = groupList.map((g: any) => ({
       id: String(g.group_id),
-      name: g.name,
+      name: cleanGroupName(g.name),
       type: 'group',
       lastMessage: '',
       lastSender: '',
@@ -387,15 +336,17 @@ async function initData() {
       responseMode: g.response_mode,
     }));
 
-    // 2. 获取遥测中的最近 50 条消息
+    // 2. 获取遥测中的最近消息并统一清洗归纳
     const teleRes: any = await apiClient.get('/telemetry');
-    const recent = teleRes?.recentMessages || [];
-    allMessages.value = recent;
+    const rawRecent = teleRes?.recentMessages || [];
+    const normalized = rawRecent.map(normalizeMessage);
+    allMessages.value = normalized;
 
-    // 3. 根据消息回填会话最后内容与私聊会话
-    for (const m of recent) {
-      if (m.type === 'group' && m.groupId) {
-        const target = loadedSessions.find((s) => s.id === String(m.groupId));
+    // 3. 将消息回填至各个会话，杜绝群聊被拆成两份
+    for (const m of normalized) {
+      if (m.type === 'group') {
+        const cleanName = cleanGroupName(m.groupName || '');
+        const target = loadedSessions.find((s) => s.id === String(m.groupId) || s.name === cleanName);
         if (target) {
           target.lastMessage = m.text;
           target.lastSender = m.sender;
@@ -441,29 +392,43 @@ function setupSse() {
 
   eventSource.addEventListener('message', (e: any) => {
     try {
-      const msg: ChatMessage = JSON.parse(e.data);
+      const raw = JSON.parse(e.data);
+      const msg = normalizeMessage(raw);
       allMessages.value.push(msg);
 
-      // 路由更新到对应会话
+      // 路由更新到对应会话 (群聊严格归并)
+      const cleanName = cleanGroupName(msg.groupName || '');
       let matchedSession = sessions.value.find((s) => {
         if (msg.type === 'group') {
-          return s.id === String(msg.groupId) || s.name === msg.groupName;
+          return (msg.groupId && s.id === String(msg.groupId)) || s.name === cleanName;
         }
-        return s.type === 'private' && (s.name === msg.groupName || s.name === msg.sender);
+        return s.type === 'private' && (s.name === cleanName || s.name === msg.sender);
       });
 
       if (!matchedSession) {
-        // 如果是新出现的私聊或群聊会话，动态插入列表
-        matchedSession = {
-          id: msg.groupId ? String(msg.groupId) : (msg.groupName || msg.sender || '新对话'),
-          name: msg.groupName || msg.sender || '微信会话',
-          type: msg.type === 'group' ? 'group' : 'private',
-          lastMessage: msg.text,
-          lastSender: msg.sender,
-          lastTime: msg.time,
-          unreadCount: 0,
-        };
-        sessions.value.unshift(matchedSession);
+        if (msg.type === 'group') {
+          matchedSession = {
+            id: msg.groupId || cleanName,
+            name: cleanName,
+            type: 'group',
+            lastMessage: msg.text,
+            lastSender: msg.sender,
+            lastTime: msg.time,
+            unreadCount: 0,
+          };
+          sessions.value.unshift(matchedSession);
+        } else {
+          matchedSession = {
+            id: msg.sender || cleanName,
+            name: cleanName || msg.sender,
+            type: 'private',
+            lastMessage: msg.text,
+            lastSender: msg.sender,
+            lastTime: msg.time,
+            unreadCount: 0,
+          };
+          sessions.value.push(matchedSession);
+        }
       } else {
         matchedSession.lastMessage = msg.text;
         matchedSession.lastSender = msg.sender;
@@ -661,18 +626,29 @@ onUnmounted(() => {
 .chat-type-tag {
   font-size: 11px;
 }
-.chat-mode-tag {
+.live-pill {
   font-size: 11px;
-  background-color: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.3);
   color: #4ade80;
+  background: rgba(34, 197, 94, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.live-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #22c55e;
 }
 .chat-header-actions {
   display: flex;
   gap: 12px;
 }
 
-/* 消息滚动主体 */
+/* 消息滚动主体 (全屏铺满，无输入框占用) */
 .chat-messages-body {
   flex: 1;
   overflow-y: auto;
@@ -795,79 +771,5 @@ onUnmounted(() => {
   right: -6px;
   border-right: none;
   border-left: 6px solid #56cf86;
-}
-
-/* 底部输入框 */
-.chat-input-area {
-  height: 145px;
-  background-color: #1c2026;
-  border-top: 1px solid #23272e;
-  display: flex;
-  flex-direction: column;
-  padding: 8px 18px 12px;
-  flex-shrink: 0;
-}
-.input-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  height: 26px;
-  margin-bottom: 4px;
-}
-.tool-icon {
-  font-size: 16px;
-  cursor: pointer;
-  opacity: 0.65;
-  transition: opacity 0.15s;
-  user-select: none;
-}
-.tool-icon:hover {
-  opacity: 1;
-}
-
-.input-text-wrapper {
-  flex: 1;
-}
-.wx-textarea {
-  width: 100%;
-  height: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: none;
-  color: #f8fafc;
-  font-size: 13.5px;
-  font-family: inherit;
-  line-height: 1.5;
-}
-.wx-textarea::placeholder {
-  color: #64748b;
-}
-
-.input-bottom-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 4px;
-}
-.shortcut-tip {
-  font-size: 11px;
-  color: #64748b;
-}
-.wx-send-btn {
-  background-color: #07c160 !important;
-  border-color: #07c160 !important;
-  color: #ffffff !important;
-  font-weight: 600;
-  padding: 6px 18px;
-  border-radius: 4px;
-}
-.wx-send-btn:hover {
-  background-color: #06ad56 !important;
-}
-.wx-send-btn.is-disabled {
-  background-color: #1e3a2b !important;
-  border-color: #1e3a2b !important;
-  color: #4b6b57 !important;
 }
 </style>

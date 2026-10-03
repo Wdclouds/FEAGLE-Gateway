@@ -285,12 +285,36 @@ async function pollBridgeStatus(targetUrl) {
             seenMessageKeys.delete(first);
           }
 
+          let peer = String(m.peer || '').trim();
+          let groupName = peer;
+          let sender = m.direction === 'OUT' ? (data.selfAvatar?.nickname || 'FaSt_eAgle') : peer;
+          let isGroup = peer.includes('群') || peer === 'test' || peer.startsWith('test /');
+          let groupId = null;
+
+          if (peer.includes(' / ')) {
+            const parts = peer.split(' / ');
+            groupName = parts[0].trim();
+            sender = m.direction === 'OUT' ? (data.selfAvatar?.nickname || 'FaSt_eAgle') : parts[1].trim();
+            isGroup = true;
+          }
+
+          if (data.groupChat && Array.isArray(data.groupChat.discovered)) {
+            const matched = data.groupChat.discovered.find((g) => g.name === groupName || groupName.includes(g.name));
+            if (matched) {
+              isGroup = true;
+              groupId = String(matched.groupId);
+              groupName = matched.name;
+            }
+          }
+
           const entry = {
             id: Date.now() + Math.random(),
-            type: m.peer?.includes('群') ? 'group' : 'private',
-            groupName: m.peer || '微信会话',
-            sender: m.direction === 'OUT' ? (data.selfAvatar?.nickname || 'FaSt_eAgle') : m.peer,
+            type: isGroup ? 'group' : 'private',
+            groupId,
+            groupName,
+            sender,
             text: m.text,
+            direction: m.direction || (sender === (data.selfAvatar?.nickname || 'FaSt_eAgle') ? 'OUT' : 'IN'),
             time: m.time || new Date().toISOString(),
           };
           gatewayState.recentMessages.push(entry);
