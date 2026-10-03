@@ -49,7 +49,7 @@ const router = createRouter({
           path: 'audit',
           name: 'AuditLog',
           component: AuditLogView,
-          meta: { title: '操作审计日志' },
+          meta: { title: '终端与审计控制台' },
         },
       ],
     },

@@ -36,7 +36,7 @@
         </el-menu-item>
         <el-menu-item index="/audit">
           <el-icon><Document /></el-icon>
-          <span>操作审计日志</span>
+          <span>终端与审计控制台</span>
         </el-menu-item>
       </el-menu>
 
