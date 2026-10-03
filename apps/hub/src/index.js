@@ -9,6 +9,8 @@ import {
   hashPassword,
   listGroupsWithPolicies,
   savePolicy,
+  deleteGroup,
+  cleanStaleGroups,
   get24hTelemetry,
   listAuditLogs,
 } from './db.js';
@@ -208,6 +210,41 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { success: true, ...result });
     } catch (err) {
       sendJson(res, 400, { error: err.message });
+    }
+    return;
+  }
+
+  // 3.2 移除群聊并记入防复活隔离表 (支持已退群移除)
+  const groupDeleteMatch = /^\/api\/groups\/([^/]+)$/.exec(pathname);
+  if (groupDeleteMatch && req.method === 'DELETE') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    const groupId = decodeURIComponent(groupDeleteMatch[1]);
+    try {
+      const result = deleteGroup(groupId, user.username);
+      broadcastSse('group_removed', { groupId });
+      sendJson(res, 200, { success: true, message: `已成功移除群聊并隔离防复活`, ...result });
+    } catch (err) {
+      sendJson(res, 500, { error: err.message });
+    }
+    return;
+  }
+
+  // 3.3 一键清理超过指定天数未活跃的历史僵尸/已退群
+  if (pathname === '/api/groups/cleanup-stale' && req.method === 'POST') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const body = await readJsonBody(req);
+      const days = Number(body.days) || 30;
+      const result = cleanStaleGroups(days, user.username);
+      sendJson(res, 200, {
+        success: true,
+        message: `清理完成，共归档移除了 ${result.cleanedCount} 个超过 ${days} 天未活跃的已退群聊`,
+        ...result,
+      });
+    } catch (err) {
+      sendJson(res, 500, { error: err.message });
     }
     return;
   }

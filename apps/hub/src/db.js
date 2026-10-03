@@ -23,47 +23,17 @@ export function hashPassword(password) {
 
 export function initDb() {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS admins (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT DEFAULT 'admin',
-      created_at TEXT NOT NULL
-    );
+    CREATE TABLE IF NOT EXISTS admins (\n      id INTEGER PRIMARY KEY AUTOINCREMENT,\n      username TEXT UNIQUE NOT NULL,\n      password_hash TEXT NOT NULL,\n      role TEXT DEFAULT 'admin',\n      created_at TEXT NOT NULL\n    );
 
-    CREATE TABLE IF NOT EXISTS groups (
-      group_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      last_seen_at TEXT NOT NULL,
-      last_sender TEXT DEFAULT '',
-      message_count INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'ACTIVE'
-    );
+    CREATE TABLE IF NOT EXISTS groups (\n      group_id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      last_seen_at TEXT NOT NULL,\n      last_sender TEXT DEFAULT '',\n      message_count INTEGER DEFAULT 0,\n      status TEXT DEFAULT 'ACTIVE'\n    );
 
-    CREATE TABLE IF NOT EXISTS group_policies (
-      group_id TEXT PRIMARY KEY,
-      system_prompt TEXT NOT NULL,
-      allowed_tools TEXT NOT NULL,
-      require_at INTEGER DEFAULT 1,
-      response_mode TEXT DEFAULT 'SMART',
-      version INTEGER DEFAULT 1,
-      updated_at TEXT NOT NULL
-    );
+    CREATE TABLE IF NOT EXISTS group_policies (\n      group_id TEXT PRIMARY KEY,\n      system_prompt TEXT NOT NULL,\n      allowed_tools TEXT NOT NULL,\n      require_at INTEGER DEFAULT 1,\n      response_mode TEXT DEFAULT 'SMART',\n      version INTEGER DEFAULT 1,\n      updated_at TEXT NOT NULL\n    );
 
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      action TEXT NOT NULL,
-      operator TEXT NOT NULL,
-      details TEXT NOT NULL,
-      ip TEXT DEFAULT '',
-      created_at TEXT NOT NULL
-    );
+    CREATE TABLE IF NOT EXISTS audit_logs (\n      id INTEGER PRIMARY KEY AUTOINCREMENT,\n      action TEXT NOT NULL,\n      operator TEXT NOT NULL,\n      details TEXT NOT NULL,\n      ip TEXT DEFAULT '',\n      created_at TEXT NOT NULL\n    );
 
-    CREATE TABLE IF NOT EXISTS telemetry_hourly (
-      hour_key TEXT PRIMARY KEY,
-      message_count INTEGER DEFAULT 0,
-      active_groups INTEGER DEFAULT 0
-    );
+    CREATE TABLE IF NOT EXISTS telemetry_hourly (\n      hour_key TEXT PRIMARY KEY,\n      message_count INTEGER DEFAULT 0,\n      active_groups INTEGER DEFAULT 0\n    );
+
+    CREATE TABLE IF NOT EXISTS ignored_groups (\n      group_id TEXT PRIMARY KEY,\n      name TEXT NOT NULL,\n      reason TEXT DEFAULT 'USER_REMOVED',\n      ignored_at TEXT NOT NULL\n    );
   `);
 
   // 默认管理员账号密码 admin / admin123
@@ -126,18 +96,90 @@ export function listGroupsWithPolicies() {
   }));
 }
 
-export function upsertGroup(groupId, name, lastSender) {
+export function isGroupIgnored(groupId) {
+  const stmt = db.prepare('SELECT 1 FROM ignored_groups WHERE group_id = ?');
+  return Boolean(stmt.get(String(groupId)));
+}
+
+export function upsertGroup(groupId, name, lastSender, lastSeenAt = null) {
+  const gid = String(groupId);
+  if (isGroupIgnored(gid)) {
+    // 已被用户标记为移除/忽略的已退群，绝不自动插入复活
+    return;
+  }
   const now = new Date().toISOString();
+  const effectiveLastSeen = lastSeenAt || now;
+  const isSync = Boolean(lastSeenAt);
+
   const stmt = db.prepare(`
     INSERT INTO groups (group_id, name, last_seen_at, last_sender, message_count)
     VALUES (?, ?, ?, ?, 1)
     ON CONFLICT(group_id) DO UPDATE SET
       name = CASE WHEN excluded.name != '' THEN excluded.name ELSE groups.name END,
-      last_seen_at = excluded.last_seen_at,
-      last_sender = excluded.last_sender,
-      message_count = groups.message_count + 1
+      last_seen_at = CASE 
+        WHEN ? THEN COALESCE(groups.last_seen_at, excluded.last_seen_at)
+        ELSE excluded.last_seen_at 
+      END,
+      last_sender = CASE 
+        WHEN excluded.last_sender != '' THEN excluded.last_sender 
+        ELSE groups.last_sender 
+      END,
+      message_count = CASE 
+        WHEN ? THEN groups.message_count 
+        ELSE groups.message_count + 1 
+      END
   `);
-  stmt.run(String(groupId), name || `微信群 ${groupId}`, now, lastSender || '');
+  stmt.run(gid, name || `微信群 ${gid}`, effectiveLastSeen, lastSender || '', isSync ? 1 : 0, isSync ? 1 : 0);
+}
+
+/** 移除已退群聊并移入墓地隔离表，防止网关轮询复活 */
+export function deleteGroup(groupId, operator = 'admin') {
+  const gid = String(groupId);
+  const group = db.prepare('SELECT name FROM groups WHERE group_id = ?').get(gid);
+  const groupName = group ? group.name : `群 ${gid}`;
+  const now = new Date().toISOString();
+
+  // 1. 记入忽略墓地表
+  const ignoreStmt = db.prepare(`
+    INSERT INTO ignored_groups (group_id, name, reason, ignored_at)
+    VALUES (?, ?, 'USER_REMOVED', ?)
+    ON CONFLICT(group_id) DO UPDATE SET ignored_at = excluded.ignored_at
+  `);
+  ignoreStmt.run(gid, groupName, now);
+
+  // 2. 从活跃群表与策略表中清除
+  db.prepare('DELETE FROM groups WHERE group_id = ?').run(gid);
+  db.prepare('DELETE FROM group_policies WHERE group_id = ?').run(gid);
+
+  // 3. 记录审计日志
+  addAuditLog(
+    'REMOVE_GROUP',
+    operator,
+    `移除了已退微信群 [${groupName}] (ID: ${gid})，并封存入防复活隔离表`,
+  );
+
+  return { success: true, groupId: gid, name: groupName };
+}
+
+/** 一键清理超过指定天数未活跃的僵尸/已退群聊 */
+export function cleanStaleGroups(days = 30, operator = 'admin') {
+  const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
+  const staleGroups = db.prepare('SELECT group_id, name, last_seen_at FROM groups WHERE last_seen_at < ?').all(cutoff);
+
+  for (const g of staleGroups) {
+    deleteGroup(g.group_id, operator);
+  }
+
+  addAuditLog(
+    'CLEAN_STALE_GROUPS',
+    operator,
+    `一键清理超过 ${days} 天未活跃的历史群聊，共归档清理 ${staleGroups.length} 个群`,
+  );
+
+  return {
+    cleanedCount: staleGroups.length,
+    groups: staleGroups,
+  };
 }
 
 export function savePolicy(groupId, policy, operator = 'admin') {

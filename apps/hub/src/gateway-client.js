@@ -297,7 +297,7 @@ async function pollBridgeStatus(targetUrl) {
     if (data.groupChat && Array.isArray(data.groupChat.discovered)) {
       for (const g of data.groupChat.discovered) {
         if (g.groupId && g.name) {
-          upsertGroup(String(g.groupId), g.name, '');
+          upsertGroup(String(g.groupId), g.name, '', g.lastSeenAt || null);
         }
       }
     }
@@ -467,7 +467,7 @@ export async function syncGroupsFromGatewayNow() {
       if (data.groupChat && Array.isArray(data.groupChat.discovered)) {
         for (const g of data.groupChat.discovered) {
           if (g.groupId && g.name) {
-            upsertGroup(String(g.groupId), g.name, '');
+            upsertGroup(String(g.groupId), g.name, '', g.lastSeenAt || null);
             syncCount++;
           }
         }

@@ -7,9 +7,14 @@
             <span class="card-title">多群 AI 策略与权限编排矩阵</span>
             <span class="card-desc">为不同微信群独立设定人设 Prompt、响应触发条件与 AI 工具执行权限</span>
           </div>
-          <el-button type="primary" :icon="Refresh" @click="fetchGroups(true)" :loading="loading">
-            刷新群列表
-          </el-button>
+          <div class="header-btns">
+            <el-button type="danger" plain :icon="Delete" @click="handleCleanStaleGroups" :loading="cleaning">
+              清理超期已退群
+            </el-button>
+            <el-button type="primary" :icon="Refresh" @click="fetchGroups(true)" :loading="loading">
+              刷新群列表
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -21,9 +26,14 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="name" label="微信群名称" min-width="160">
+        <el-table-column prop="name" label="微信群名称" min-width="180">
           <template #default="{ row }">
-            <span class="group-name">{{ row.name }}</span>
+            <div class="group-name-col">
+              <span class="group-name">{{ row.name }}</span>
+              <el-tag v-if="isStaleGroup(row.last_seen_at)" size="small" type="danger" effect="plain" class="stale-tag">
+                超期未活跃
+              </el-tag>
+            </div>
             <span class="msg-count-badge">({{ row.message_count }} 条互动)</span>
           </template>
         </el-table-column>
@@ -70,11 +80,25 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="管理操作" width="120" fixed="right">
+        <el-table-column label="管理操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="openDrawer(row)">
               编排策略
             </el-button>
+            <el-popconfirm
+              title="确定移除该群？该群将被永久加入防复活隔离表，网关同步不再展示。"
+              confirm-button-text="确认移除"
+              cancel-button-text="取消"
+              confirm-button-type="danger"
+              width="260"
+              @confirm="handleDeleteGroup(row)"
+            >
+              <template #reference>
+                <el-button size="small" type="danger" link>
+                  移除已退群
+                </el-button>
+              </template>
+            </el-popconfirm>
           </template>
         </el-table-column>
       </el-table>
@@ -155,12 +179,13 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
-import { Refresh } from '@element-plus/icons-vue';
+import { Refresh, Delete } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import { apiClient } from '../api/client';
 
 const groups = ref<any[]>([]);
 const loading = ref(false);
+const cleaning = ref(false);
 const drawerVisible = ref(false);
 const editingGroup = ref<any>(null);
 const saving = ref(false);
@@ -252,6 +277,36 @@ async function submitPolicy() {
   }
 }
 
+function isStaleGroup(isoString: string) {
+  if (!isoString) return false;
+  const diff = Date.now() - new Date(isoString).getTime();
+  return diff > 30 * 86400_000; // 超过 30 天未活跃
+}
+
+async function handleDeleteGroup(group: any) {
+  try {
+    const gid = group.group_id;
+    const res: any = await apiClient.delete(`/groups/${encodeURIComponent(gid)}`);
+    ElMessage.success(res.message || `已成功移除群聊 [${group.name}]`);
+    fetchGroups();
+  } catch (err: any) {
+    ElMessage.error(err.message || '移除群聊失败');
+  }
+}
+
+async function handleCleanStaleGroups() {
+  cleaning.value = true;
+  try {
+    const res: any = await apiClient.post('/groups/cleanup-stale', { days: 30 });
+    ElMessage.success(res.message || `已自动清理归档 ${res.cleanedCount || 0} 个超期已退群聊`);
+    fetchGroups();
+  } catch (err: any) {
+    ElMessage.error(err.message || '清理群聊失败');
+  } finally {
+    cleaning.value = false;
+  }
+}
+
 onMounted(() => {
   fetchGroups();
 });
@@ -271,6 +326,21 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.header-btns {
+  display: flex;
+  gap: 10px;
+}
+.group-name-col {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stale-tag {
+  font-size: 10px;
+  height: 18px;
+  line-height: 16px;
+  padding: 0 4px;
 }
 .card-title {
   font-size: 16px;
