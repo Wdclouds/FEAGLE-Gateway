@@ -4,9 +4,7 @@
   "version": "0.1.0",
   "identifier": "io.github.wdclouds.feaglehub",
   "build": {
-    "frontendDist": "../web/dist",
-    "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev --prefix web",
+    "frontendDist": "../dist",
     "beforeBuildCommand": "npm run build --prefix web"
   },
   "app": {
