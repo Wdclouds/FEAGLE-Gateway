@@ -72,10 +72,24 @@
       </div>
     </header>
 
-    <!-- 主体 TUI 分割视口：左 75% 纯净日志流，右 25% 紧凑审计 -->
+    <!-- 主体 TUI 分割视口：左 75% 终端日志流，右 25% 紧凑审计 -->
     <main class="tui-split-workspace">
-      <!-- ===== 左侧 3/4：纯净实时日志流 (无多余标题横幅，第一行直接看数据) ===== -->
+      <!-- ===== 左侧 3/4：原生终端日志流 (保留命令行艺术字与提示符) ===== -->
       <section class="pane-stream" ref="systemLogScreenRef" @scroll="handleUserScroll">
+        <!-- 终端命令行 ASCII 字符画横幅 -->
+        <div class="terminal-banner">
+          <pre class="ascii-title">
+   ______ ______ ___   ______ __     ______   __  __ __  __ ____ 
+  / ____// ____//   | / ____// /    / ____/  / / / // / / // __ )
+ / /_   / __/  / /| |/ / __ / /    / __/    / /_/ // / / // __  |
+/ __/  / /___ / ___ / /_/ // /___ / /___   / __  // /_/ // /_/ / 
+/_/   /_____//_/  |_\____//_____//_____/  /_/ /_/ \____//_____/  
+                                              [Kernel v2.0-Live]</pre>
+          <div class="banner-subtext">
+            Active Connection: Direct Bridge Sync · Terminal Buffer: {{ terminalLogs.length }}/500
+          </div>
+        </div>
+
         <div class="log-stream">
           <div
             v-for="item in filteredLogs"
@@ -103,6 +117,12 @@
           <div v-if="filteredLogs.length === 0" class="log-empty-tip">
             终端静默中，等待微信消息与系统事件流推送...
           </div>
+        </div>
+
+        <!-- 终端命令行提示符与闪烁光标 -->
+        <div class="tui-prompt-row">
+          <span class="tui-prompt">feagle@hub:~$</span>
+          <span class="tui-cursor">█</span>
         </div>
       </section>
 
@@ -479,6 +499,45 @@ onUnmounted(() => {
   border-right: 1px solid #1e293b;
   scroll-behavior: smooth;
 }
+
+.terminal-banner {
+  margin-bottom: 12px;
+  user-select: none;
+}
+.ascii-title {
+  color: #0284c7;
+  font-size: 10px;
+  line-height: 1.15;
+  margin: 0;
+  font-family: monospace;
+}
+.banner-subtext {
+  font-size: 11px;
+  color: #475569;
+  border-bottom: 1px dashed #1e293b;
+  padding: 4px 0 8px 0;
+}
+
+.tui-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: #38bdf8;
+  font-size: 12px;
+}
+.tui-prompt {
+  font-weight: 600;
+}
+.tui-cursor {
+  animation: tui-cursor-blink 1s step-start infinite;
+  color: #38bdf8;
+}
+@keyframes tui-cursor-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 .log-stream {
   display: flex;
   flex-direction: column;
