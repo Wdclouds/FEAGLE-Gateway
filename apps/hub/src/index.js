@@ -163,6 +163,8 @@ const server = http.createServer(async (req, res) => {
         accountName: gatewayState.accountName,
         avatarBase64: gatewayState.avatarBase64,
         reconnectAttempts: gatewayState.reconnectAttempts,
+        android: gatewayState.android || null,
+        wechat: gatewayState.wechat || null,
       },
       hermes: {
         connected: hermesState.connected,

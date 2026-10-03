@@ -270,6 +270,8 @@ async function pollBridgeStatus(targetUrl) {
     gatewayState.accountName = data.selfAvatar?.nickname || 'FaSt_eAgle';
     gatewayState.avatarBase64 = data.selfAvatar?.avatarBase64 || null;
     gatewayState.status = isOnline ? 'connected' : 'offline';
+    gatewayState.android = data.android || { deviceStatus: 'UNKNOWN', hookConnected: false };
+    gatewayState.wechat = data.wechat || null;
     gatewayState.statusText = isOnline
       ? `已直连云端 Bridge (${data.selfAvatar?.nickname || '微信'} · ${data.wechat?.detail || '在线'})`
       : `已连接 Bridge，但微信未就绪: ${data.wechat?.detail || data.wechat?.status || 'OFFLINE'}`;

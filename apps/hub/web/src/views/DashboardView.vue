@@ -28,19 +28,25 @@
               <div class="node-title">物理驱动层 (Driver)</div>
               <div class="node-subtitle">三星平板 (SM-X200)</div>
             </div>
-            <el-tag size="small" type="success">ONLINE</el-tag>
+            <el-tag
+              size="small"
+              :type="telemetry.gateway?.android?.deviceStatus === 'CONNECTED' ? 'success' : (telemetry.gateway?.connected ? 'success' : 'danger')"
+            >
+              {{ telemetry.gateway?.android?.deviceStatus || (telemetry.gateway?.connected ? 'ONLINE' : 'OFFLINE') }}
+            </el-tag>
           </div>
           <div class="node-main-val">
             WeChat 8.0.78
+            <span class="val-unit" v-if="telemetry.gateway?.android?.deviceIdMasked">({{ telemetry.gateway.android.deviceIdMasked }})</span>
           </div>
           <div class="node-details">
             <div class="detail-row">
               <span class="detail-label">驱动方式:</span>
-              <span class="detail-val">LSPosed Vector Hook</span>
+              <span class="detail-val">LSPosed Hook ({{ telemetry.gateway?.android?.hookConnected !== false ? '已挂载' : '未挂载' }})</span>
             </div>
             <div class="detail-row">
               <span class="detail-label">通道接口:</span>
-              <span class="detail-val">WS 客户端 <code>:6191</code></span>
+              <span class="detail-val">WS <code>:6191</code> (心跳 {{ telemetry.gateway?.android?.heartbeatAgeMs ?? 0 }}ms)</span>
             </div>
             <div class="detail-tip">负责底层微信原始报文拦截与物理发信</div>
           </div>
