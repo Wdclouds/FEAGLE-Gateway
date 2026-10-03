@@ -198,7 +198,23 @@ function cleanGroupName(name: string) {
 }
 
 // 统一将消息规整到标准结构
-function normalizeMessage(raw: any): ChatMessage {
+function normalizeMessage(raw: any): ChatMessage | null {
+  if (!raw) return null;
+
+  // 核心拦截 1：过滤 Android 系统通知信令影子 (notify 拍一拍/提醒推送，避免在群里有人@时新开独立私聊)
+  const rawSender = String(raw.sender || '');
+  const rawGroup = String(raw.groupName || '');
+  const rawPeer = String(raw.peer || '');
+  if (
+    rawSender.includes('1000000102') ||
+    rawGroup.includes('1000000102') ||
+    rawPeer.includes('1000000102') ||
+    rawGroup.startsWith('notify') ||
+    rawPeer.startsWith('notify')
+  ) {
+    return null;
+  }
+
   const isOut =
     raw.direction === 'OUT' ||
     raw.sender === 'FaSt_eAgle' ||
@@ -206,12 +222,27 @@ function normalizeMessage(raw: any): ChatMessage {
     raw.sender?.includes('小号') ||
     raw.sender?.includes('Bot');
 
-  const cleanName = cleanGroupName(raw.groupName || '');
-  const isGroup = raw.type === 'group' || cleanName.includes('群') || cleanName === 'test';
+  let cleanName = cleanGroupName(raw.groupName || raw.peer || '');
+  const isGroup =
+    raw.type === 'group' ||
+    cleanName.includes('群') ||
+    cleanName === 'test' ||
+    raw.groupName?.includes('test');
 
   let sender = raw.sender || (isOut ? 'FaSt_eAgle' : '群成员');
   if (sender.includes(' / ')) {
     sender = sender.split(' / ')[1].trim();
+  }
+
+  // 核心拦截 2：私聊名称归一化，解决“私聊收发分离”Bug
+  // 微信好友发来时叫 Android contact 1000000061，小号回复时叫 WeChat contact，统一归并为同一会话
+  if (!isGroup) {
+    if (cleanName === 'WeChat contact' || cleanName.startsWith('Android contact')) {
+      cleanName = '微信好友';
+      if (!isOut) {
+        sender = '微信好友';
+      }
+    }
   }
 
   return {
@@ -235,7 +266,7 @@ const filteredSessions = computed(() => {
   );
 });
 
-// 当前选中会话的消息流水 (严格归集同一群聊的所有消息)
+// 当前选中会话的消息流水 (严格归集同一会话的所有消息)
 const currentMessages = computed(() => {
   if (!currentSession.value) return [];
   const activeId = currentSession.value.id;
@@ -243,15 +274,25 @@ const currentMessages = computed(() => {
   const isGroup = currentSession.value.type === 'group';
 
   return allMessages.value.filter((m) => {
+    if (!m) return false;
     if (isGroup) {
       const mName = cleanGroupName(m.groupName || '');
       return (
-        (m.groupId && String(m.groupId) === activeId) ||
-        mName === activeName ||
-        (activeName && mName.startsWith(activeName))
+        m.type === 'group' &&
+        ((m.groupId && String(m.groupId) === activeId) ||
+          mName === activeName ||
+          (activeName && mName.startsWith(activeName)))
       );
     }
-    return m.type === 'private' && (m.sender === activeId || m.groupName === activeId);
+    // 私聊会话：统一匹配微信好友或对方 ID
+    return (
+      m.type === 'private' &&
+      (m.groupName === activeName ||
+        (activeName === '微信好友' &&
+          (m.groupName === '微信好友' ||
+            m.groupName === 'WeChat contact' ||
+            m.groupName.startsWith('Android contact'))))
+    );
   });
 });
 
@@ -339,10 +380,10 @@ async function initData() {
     // 2. 获取遥测中的最近消息并统一清洗归纳
     const teleRes: any = await apiClient.get('/telemetry');
     const rawRecent = teleRes?.recentMessages || [];
-    const normalized = rawRecent.map(normalizeMessage);
+    const normalized = rawRecent.map(normalizeMessage).filter(Boolean) as ChatMessage[];
     allMessages.value = normalized;
 
-    // 3. 将消息回填至各个会话，杜绝群聊被拆成两份
+    // 3. 将消息回填至各个会话，杜绝群聊被拆成两份，私聊收发合一
     for (const m of normalized) {
       if (m.type === 'group') {
         const cleanName = cleanGroupName(m.groupName || '');
@@ -353,12 +394,12 @@ async function initData() {
           target.lastTime = m.time;
         }
       } else if (m.type === 'private') {
-        const peer = m.groupName || m.sender || '微信联系人';
-        let privSession = loadedSessions.find((s) => s.name === peer);
+        const targetName = m.groupName || '微信好友';
+        let privSession = loadedSessions.find((s) => s.name === targetName);
         if (!privSession) {
           privSession = {
-            id: peer,
-            name: peer,
+            id: targetName,
+            name: targetName,
             type: 'private',
             lastMessage: m.text,
             lastSender: m.sender,
@@ -394,15 +435,16 @@ function setupSse() {
     try {
       const raw = JSON.parse(e.data);
       const msg = normalizeMessage(raw);
+      if (!msg) return; // 核心拦截：过滤系统通知影子，不新开私聊
       allMessages.value.push(msg);
 
-      // 路由更新到对应会话 (群聊严格归并)
+      // 路由更新到对应会话 (群聊严格归并，私聊收发统一归并)
       const cleanName = cleanGroupName(msg.groupName || '');
       let matchedSession = sessions.value.find((s) => {
         if (msg.type === 'group') {
           return (msg.groupId && s.id === String(msg.groupId)) || s.name === cleanName;
         }
-        return s.type === 'private' && (s.name === cleanName || s.name === msg.sender);
+        return s.type === 'private' && s.name === cleanName;
       });
 
       if (!matchedSession) {
@@ -419,8 +461,8 @@ function setupSse() {
           sessions.value.unshift(matchedSession);
         } else {
           matchedSession = {
-            id: msg.sender || cleanName,
-            name: cleanName || msg.sender,
+            id: cleanName,
+            name: cleanName,
             type: 'private',
             lastMessage: msg.text,
             lastSender: msg.sender,

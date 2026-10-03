@@ -276,8 +276,16 @@ async function pollBridgeStatus(targetUrl) {
 
     // 同步最近消息
     if (Array.isArray(data.messages)) {
+      // 记录最近见过的群消息内容，用于过滤 Android 系统通知影子 (notify shadow)
+      const recentGroupTexts = new Set();
       for (const m of data.messages) {
-        const key = `${m.time}_${m.text}`;
+        if (m.peer?.includes('群') || m.peer === 'test' || m.peer?.startsWith('test /') || m.status?.includes('GROUP')) {
+          if (m.text) recentGroupTexts.add(m.text.trim());
+        }
+      }
+
+      for (const m of data.messages) {
+        const key = `${m.time}_${m.text}_${m.peer}`;
         if (!seenMessageKeys.has(key)) {
           seenMessageKeys.add(key);
           if (seenMessageKeys.size > 500) {
@@ -286,9 +294,20 @@ async function pollBridgeStatus(targetUrl) {
           }
 
           let peer = String(m.peer || '').trim();
+
+          // 核心修复 1：过滤 Android 系统通知信令影子 (notify 频道)
+          // 当群聊有人 @小号 时，Android 会额外上报一个 notify:xxx 作为虚拟私聊，内容与群消息完全相同
+          if (
+            (peer.startsWith('Android contact') || peer.startsWith('notify')) &&
+            (recentGroupTexts.has(m.text?.trim()) || m.text?.startsWith('[CQ:at') || m.text?.includes('@秋白') || m.text?.includes('@韩立'))
+          ) {
+            // 这是群消息触发的系统影子通知，坚决不作为私聊展示，直接忽略
+            continue;
+          }
+
           let groupName = peer;
           let sender = m.direction === 'OUT' ? (data.selfAvatar?.nickname || 'FaSt_eAgle') : peer;
-          let isGroup = peer.includes('群') || peer === 'test' || peer.startsWith('test /');
+          let isGroup = peer.includes('群') || peer === 'test' || peer.startsWith('test /') || m.status?.includes('GROUP');
           let groupId = null;
 
           if (peer.includes(' / ')) {
@@ -298,7 +317,18 @@ async function pollBridgeStatus(targetUrl) {
             isGroup = true;
           }
 
-          if (data.groupChat && Array.isArray(data.groupChat.discovered)) {
+          // 核心修复 2：私聊名称归一化，解决“私聊收发分离”Bug
+          // Bridge 端接收时叫 "Android contact 1000000061"，发信时叫 "WeChat contact"，统一收敛为同一个好友
+          if (!isGroup) {
+            if (peer === 'WeChat contact' || peer.startsWith('Android contact')) {
+              groupName = '微信好友';
+              if (m.direction === 'IN') {
+                sender = '微信好友';
+              }
+            }
+          }
+
+          if (isGroup && data.groupChat && Array.isArray(data.groupChat.discovered)) {
             const matched = data.groupChat.discovered.find((g) => g.name === groupName || groupName.includes(g.name));
             if (matched) {
               isGroup = true;
