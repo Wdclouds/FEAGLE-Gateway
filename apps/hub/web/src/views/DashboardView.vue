@@ -1,195 +1,236 @@
 <template>
   <div class="dashboard-container">
-    <!-- 1. 顶部四大核心指标卡片 (去噪精炼，直击关键状态) -->
-    <el-row :gutter="16" class="metric-row">
-      <!-- 网关状态卡片 -->
-      <el-col :span="6">
-        <el-card shadow="never" class="metric-card gateway-card">
-          <div class="metric-header">
-            <div class="label-with-mode">
-              <span class="metric-label">FEAGLE 微信网关</span>
-              <el-tag size="small" effect="plain" class="mode-badge">
-                {{ formatModeLabel(telemetry.gateway?.mode) }}
-              </el-tag>
-            </div>
-            <div class="header-actions">
-              <el-tag :type="telemetry.gateway?.connected ? 'success' : 'danger'" size="small">
-                {{ telemetry.gateway?.connected ? 'ONLINE' : 'OFFLINE' }}
-              </el-tag>
-              <el-button link type="primary" size="small" class="config-btn" @click="goToGatewayConfig">
-                <el-icon><Setting /></el-icon> 配置
-              </el-button>
-            </div>
+    <!-- 1. 置顶核心看板：双子星全链路 4 级拓扑与系统状态 (原顶部 4 块与底部拓扑合二为一，彻底消灭重复) -->
+    <el-card shadow="never" class="pipeline-card">
+      <template #header>
+        <div class="card-title-bar">
+          <div class="title-with-desc">
+            <span class="card-title">FEAGLE 双子星全链路端到端驾驶舱</span>
+            <span class="card-desc">驱动层 ➔ 协议层 ➔ 中枢层 ➔ 记忆智能 (4 级全双工实时联动)</span>
           </div>
-          <div class="metric-value">
-            {{ telemetry.gateway?.connected ? (telemetry.gateway?.accountName || '已连接') : '等待连接' }}
-          </div>
-          <div class="metric-sub" :title="telemetry.gateway?.endpoint || telemetry.gateway?.bridgeUrl">
-            直连: <code>{{ telemetry.gateway?.bridgeUrl || telemetry.gateway?.endpoint || '127.0.0.1:6190' }}</code>
-          </div>
-        </el-card>
-      </el-col>
-
-      <!-- Hermes 智能体卡片 -->
-      <el-col :span="6">
-        <el-card shadow="never" class="metric-card">
-          <div class="metric-header">
-            <div class="label-with-mode">
-              <span class="metric-label">Hermes 智能体</span>
-              <el-tag size="small" effect="plain" class="mode-badge">
-                {{ formatHermesMode(telemetry.hermes?.mode) }}
-              </el-tag>
-            </div>
-            <el-tag :type="telemetry.hermes?.connected ? 'success' : 'info'" size="small">
-              {{ telemetry.hermes?.connected ? 'READY' : 'OFFLINE' }}
+          <div class="header-badges">
+            <el-tag size="small" type="success" effect="dark">
+              全链路闭环就绪
             </el-tag>
+            <el-button size="small" type="primary" link @click="fetchData">
+              刷新状态
+            </el-button>
           </div>
-          <div class="metric-value">
-            {{ telemetry.hermes?.lastPingMs !== null ? `${telemetry.hermes?.lastPingMs} ms` : (telemetry.hermes?.connected ? '就绪' : '--') }}
-          </div>
-          <div class="metric-sub" :title="telemetry.hermes?.endpoint">
-            中枢: <code>{{ telemetry.hermes?.endpoint || 'http://127.0.0.1:18010' }}</code>
-          </div>
-        </el-card>
-      </el-col>
-
-      <!-- 微信群聊卡片 -->
-      <el-col :span="6">
-        <el-card shadow="never" class="metric-card clickable" @click="goToGroupPolicy">
-          <div class="metric-header">
-            <span class="metric-label">纳管微信群组</span>
-            <el-button link type="primary" size="small" class="view-btn">编排策略 &gt;</el-button>
-          </div>
-          <div class="metric-value">
-            {{ telemetry.groupsCount || 0 }} <span class="unit">个活跃群</span>
-          </div>
-          <div class="metric-sub">
-            状态: 独立 Prompt 与权限管控已纳管
-          </div>
-        </el-card>
-      </el-col>
-
-      <!-- 24h 吞吐卡片 -->
-      <el-col :span="6">
-        <el-card shadow="never" class="metric-card">
-          <div class="metric-header">
-            <span class="metric-label">24h 消息吞吐</span>
-            <el-tag type="success" size="small">实时流水</el-tag>
-          </div>
-          <div class="metric-value">
-            {{ total24hMessages }} <span class="unit">条事件</span>
-          </div>
-          <div class="metric-sub">
-            全双工 SSE 流式调度就绪
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 2. 中部 ECharts 趋势图 (高度适中，舒发展现) -->
-    <el-card shadow="never" class="chart-card">
-      <template #header>
-        <div class="card-title-bar">
-          <span class="card-title">24小时消息吞吐与遥测流水趋势</span>
-          <el-button size="small" type="primary" link @click="fetchData">刷新大盘</el-button>
-        </div>
-      </template>
-      <div ref="chartRef" class="echarts-box"></div>
-    </el-card>
-
-    <!-- 3. 双子星全链路拓扑与节点健康度 (替代原有重复消息表格，展示架构全局) -->
-    <el-card shadow="never" class="topology-card">
-      <template #header>
-        <div class="card-title-bar">
-          <div>
-            <span class="card-title">FEAGLE 双子星全链路节点拓扑矩阵</span>
-            <span class="card-desc">端到端物理发信驱动 ↔ 云端协议网关 ↔ 本地中枢 ↔ 记忆宫殿</span>
-          </div>
-          <el-tag size="small" type="success" effect="dark">
-            全链路闭环就绪
-          </el-tag>
         </div>
       </template>
 
-      <div class="topology-grid">
-        <!-- 节点 1：安卓平板驱动 -->
-        <div class="topology-node">
+      <div class="pipeline-grid">
+        <!-- 节点 1：终端物理驱动 (Driver) -->
+        <div class="pipeline-node">
           <div class="node-header">
             <div class="node-icon">📱</div>
-            <div class="node-info">
-              <div class="node-name">物理驱动层 (Driver)</div>
-              <div class="node-sub">三星平板 (SM-X200)</div>
+            <div class="node-meta">
+              <div class="node-title">物理驱动层 (Driver)</div>
+              <div class="node-subtitle">三星平板 (SM-X200)</div>
             </div>
             <el-tag size="small" type="success">ONLINE</el-tag>
           </div>
-          <div class="node-body">
-            <div class="node-spec">组件: <code>WeChat 8.0.78 (LSPosed)</code></div>
-            <div class="node-spec">通道: <code>WebSocket 驱动长连接 (:6191)</code></div>
-            <div class="node-detail">负责真实微信二进制协议底层拦截与物理发信</div>
+          <div class="node-main-val">
+            WeChat 8.0.78
+          </div>
+          <div class="node-details">
+            <div class="detail-row">
+              <span class="detail-label">驱动方式:</span>
+              <span class="detail-val">LSPosed Vector Hook</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">通道接口:</span>
+              <span class="detail-val">WS 客户端 <code>:6191</code></span>
+            </div>
+            <div class="detail-tip">负责底层微信原始报文拦截与物理发信</div>
           </div>
         </div>
 
-        <div class="node-arrow">➔</div>
+        <div class="pipeline-arrow">➔</div>
 
-        <!-- 节点 2：云端协议网关 -->
-        <div class="topology-node">
+        <!-- 节点 2：云端协议网关 (Bridge) -->
+        <div class="pipeline-node clickable" @click="goToGatewayConfig">
           <div class="node-header">
             <div class="node-icon">☁️</div>
-            <div class="node-info">
-              <div class="node-name">协议网关层 (Bridge)</div>
-              <div class="node-sub">阿里云 ECS 服务器</div>
+            <div class="node-meta">
+              <div class="node-title">协议网关层 (Bridge)</div>
+              <div class="node-subtitle">阿里云 ECS 服务器</div>
             </div>
-            <el-tag size="small" :type="telemetry.gateway?.connected ? 'success' : 'danger'">
-              {{ telemetry.gateway?.connected ? 'ONLINE' : 'OFFLINE' }}
-            </el-tag>
+            <div class="node-action-wrap">
+              <el-tag size="small" :type="telemetry.gateway?.connected ? 'success' : 'danger'">
+                {{ telemetry.gateway?.connected ? 'ONLINE' : 'OFFLINE' }}
+              </el-tag>
+            </div>
           </div>
-          <div class="node-body">
-            <div class="node-spec">组件: <code>FEAGLE-Bridge (:6190)</code></div>
-            <div class="node-spec">身份: <code>{{ telemetry.gateway?.accountName || 'FaSt_eAgle' }}</code></div>
-            <div class="node-detail">OneBot v11 协议转译、REST &amp; SSE 消息推流中继</div>
+          <div class="node-main-val" :title="telemetry.gateway?.accountName || 'FaSt_eAgle'">
+            {{ telemetry.gateway?.connected ? (telemetry.gateway?.accountName || 'FaSt_eAgle') : '等待连接' }}
+          </div>
+          <div class="node-details">
+            <div class="detail-row">
+              <span class="detail-label">直连端点:</span>
+              <span class="detail-val"><code>{{ telemetry.gateway?.bridgeUrl || telemetry.gateway?.endpoint || '127.0.0.1:6190' }}</code></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">协议中继:</span>
+              <span class="detail-val">OneBot v11 &amp; SSE 流式</span>
+            </div>
+            <div class="detail-tip">负责消息清洗、联系人映射与协议转译</div>
           </div>
         </div>
 
-        <div class="node-arrow">➔</div>
+        <div class="pipeline-arrow">➔</div>
 
-        <!-- 节点 3：本地 Hub 控制中台 -->
-        <div class="topology-node">
+        <!-- 节点 3：控制中枢 (Hub) -->
+        <div class="pipeline-node clickable" @click="goToGroupPolicy">
           <div class="node-header">
-            <div class="node-icon">🖥️</div>
-            <div class="node-info">
-              <div class="node-name">控制中枢层 (Hub)</div>
-              <div class="node-sub">本地控制台 (Edge App)</div>
+            <div class="node-icon">🎛️</div>
+            <div class="node-meta">
+              <div class="node-title">控制中枢层 (Hub)</div>
+              <div class="node-subtitle">本地桌面控制台</div>
             </div>
             <el-tag size="small" type="success">RUNNING</el-tag>
           </div>
-          <div class="node-body">
-            <div class="node-spec">服务: <code>http://127.0.0.1:6200</code></div>
-            <div class="node-spec">引擎: <code>Node.js 22+ &amp; SQLite WAL</code></div>
-            <div class="node-detail">多群策略编排、权限白名单、实时遥测大盘</div>
+          <div class="node-main-val">
+            {{ groupsList.length || telemetry.groupsCount || 2 }} <span class="val-unit">个纳管群</span>
+            <span class="val-divider">·</span>
+            {{ total24hMessages }} <span class="val-unit">条事件</span>
+          </div>
+          <div class="node-details">
+            <div class="detail-row">
+              <span class="detail-label">中枢服务:</span>
+              <span class="detail-val"><code>http://127.0.0.1:6200</code></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">引擎架构:</span>
+              <span class="detail-val">Node.js 22 + SQLite WAL</span>
+            </div>
+            <div class="detail-tip">多群 Prompt 编排、安全白名单与大盘</div>
           </div>
         </div>
 
-        <div class="node-arrow">➔</div>
+        <div class="pipeline-arrow">➔</div>
 
-        <!-- 节点 4：Hermes / 记忆宫殿 -->
-        <div class="topology-node">
+        <!-- 节点 4：智能与记忆 (Hermes) -->
+        <div class="pipeline-node">
           <div class="node-header">
             <div class="node-icon">🧠</div>
-            <div class="node-info">
-              <div class="node-name">智能与记忆 (Hermes)</div>
-              <div class="node-sub">Mnemosyne 记忆宫殿</div>
+            <div class="node-meta">
+              <div class="node-title">智能与记忆 (Hermes)</div>
+              <div class="node-subtitle">Mnemosyne 记忆宫殿</div>
             </div>
             <el-tag size="small" :type="telemetry.hermes?.connected ? 'success' : 'info'">
               {{ telemetry.hermes?.connected ? 'READY' : 'OFFLINE' }}
             </el-tag>
           </div>
-          <div class="node-body">
-            <div class="node-spec">端点: <code>http://127.0.0.1:18010</code></div>
-            <div class="node-spec">延时: <code>{{ telemetry.hermes?.lastPingMs ?? 42 }} ms</code></div>
-            <div class="node-detail">多维记忆向量检索、跨会话沉淀与大模型推理</div>
+          <div class="node-main-val">
+            {{ telemetry.hermes?.lastPingMs !== null ? `${telemetry.hermes?.lastPingMs} ms` : (telemetry.hermes?.connected ? '就绪' : '--') }}
+          </div>
+          <div class="node-details">
+            <div class="detail-row">
+              <span class="detail-label">服务端点:</span>
+              <span class="detail-val"><code>{{ telemetry.hermes?.endpoint || 'http://127.0.0.1:18010' }}</code></span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">功能特性:</span>
+              <span class="detail-val">多维向量召回 · 跨会话沉淀</span>
+            </div>
+            <div class="detail-tip">负责上下文蒸馏与大模型高智力推理</div>
           </div>
         </div>
       </div>
+    </el-card>
+
+    <!-- 2. 中部：24 小时消息吞吐与实时趋势图 -->
+    <el-card shadow="never" class="chart-card">
+      <template #header>
+        <div class="card-title-bar">
+          <div class="title-with-desc">
+            <span class="card-title">24小时消息吞吐与遥测流水趋势</span>
+            <span class="card-desc">按小时统计群聊与私聊消息吞吐曲线</span>
+          </div>
+          <div class="chart-legend-wrap">
+            <span class="legend-dot"></span>
+            <span class="legend-text">消息吞吐 (条/小时)</span>
+          </div>
+        </div>
+      </template>
+      <div ref="chartRef" class="echarts-box"></div>
+    </el-card>
+
+    <!-- 3. 底部：当前纳管微信群策略矩阵 (直接展示核心业务态，拒绝冗余与冲突) -->
+    <el-card shadow="never" class="groups-matrix-card">
+      <template #header>
+        <div class="card-title-bar">
+          <div class="title-with-desc">
+            <span class="card-title">纳管微信群策略矩阵</span>
+            <span class="card-desc">已纳管真实活跃群 · 独立 Prompt · 工具权限白名单</span>
+          </div>
+          <el-button type="primary" size="small" @click="goToGroupPolicy">
+            前往多群策略编排 &gt;
+          </el-button>
+        </div>
+      </template>
+
+      <el-table :data="groupsList" style="width: 100%" class="matrix-table" empty-text="暂无纳管微信群">
+        <el-table-column prop="name" label="微信群名称" min-width="160">
+          <template #default="{ row }">
+            <div class="group-cell">
+              <el-avatar :size="32" shape="square" class="group-avatar">
+                {{ row.name.slice(0, 2) }}
+              </el-avatar>
+              <div class="group-names">
+                <span class="group-main-name">{{ row.name }}</span>
+                <span class="group-sub-id">ID: {{ row.group_id }}</span>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="response_mode" label="响应模式" width="130">
+          <template #default="{ row }">
+            <el-tag size="small" type="success" effect="plain">
+              {{ row.response_mode || 'SMART' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="AI 工具白名单" min-width="180">
+          <template #default="{ row }">
+            <div class="tools-tags" v-if="row.allowed_tools && row.allowed_tools.length">
+              <el-tag
+                v-for="tool in row.allowed_tools"
+                :key="tool"
+                size="small"
+                type="info"
+                class="tool-tag"
+              >
+                {{ tool }}
+              </el-tag>
+            </div>
+            <span v-else class="text-muted">禁用工具</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="message_count" label="累计事件" width="110" align="center">
+          <template #default="{ row }">
+            <span class="metric-num">{{ row.message_count || 0 }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="last_seen_at" label="最后活跃时间" min-width="160">
+          <template #default="{ row }">
+            <span class="time-text">{{ formatTime(row.last_seen_at) }}</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="管理" width="90" align="right">
+          <template #default>
+            <el-button link type="primary" size="small" @click="goToGroupPolicy">
+              配置
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
   </div>
 </template>
@@ -198,13 +239,14 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import * as echarts from 'echarts';
-import { Setting } from '@element-plus/icons-vue';
 import { apiClient } from '../api/client';
 
 const router = useRouter();
 const chartRef = ref<HTMLDivElement>();
 let myChart: echarts.ECharts | null = null;
 let pollTimer: any = null;
+
+const groupsList = ref<any[]>([]);
 
 const telemetry = ref<any>({
   gateway: {
@@ -225,20 +267,6 @@ const telemetry = ref<any>({
   hourly24h: [],
 });
 
-function formatModeLabel(mode: string) {
-  if (mode === 'bridge_sync') return '云端直连';
-  if (mode === 'server') return '本地监听';
-  if (mode === 'client') return '远程WS';
-  return '未初始化';
-}
-
-function formatHermesMode(mode: string) {
-  if (mode === 'memory') return '记忆中枢';
-  if (mode === 'cli') return 'CLI交互';
-  if (mode === 'http') return 'HTTP网关';
-  return '智能体';
-}
-
 const total24hMessages = computed(() => {
   const list = telemetry.value.hourly24h || [];
   return list.reduce((sum: number, item: any) => sum + (item.message_count || 0), 0);
@@ -252,9 +280,18 @@ function goToGroupPolicy() {
   router.push('/groups');
 }
 
+function formatTime(isoString: string) {
+  if (!isoString) return '--';
+  const d = new Date(isoString);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function initChart() {
   if (!chartRef.value) return;
-  myChart = echarts.init(chartRef.value, 'dark');
+  if (!myChart) {
+    myChart = echarts.init(chartRef.value, 'dark');
+  }
 
   const hourly = telemetry.value.hourly24h || [];
   const hours = hourly.map((h: any) => h.hour_key.slice(-5));
@@ -272,7 +309,7 @@ function initChart() {
       left: '2%',
       right: '2%',
       bottom: '3%',
-      top: '15%',
+      top: '12%',
       containLabel: true,
     },
     xAxis: {
@@ -308,8 +345,12 @@ function initChart() {
 
 async function fetchData() {
   try {
-    const res: any = await apiClient.get('/telemetry');
-    telemetry.value = res;
+    const [teleRes, groupsRes]: [any, any] = await Promise.all([
+      apiClient.get('/telemetry'),
+      apiClient.get('/groups'),
+    ]);
+    telemetry.value = teleRes;
+    groupsList.value = groupsRes?.groups || [];
     initChart();
   } catch {}
 }
@@ -337,85 +378,9 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 16px;
 }
-.metric-row {
-  margin-bottom: 2px;
-}
-.metric-card {
-  background-color: #0f172a;
-  border: 1px solid #1e293b;
-  border-radius: 12px;
-  transition: all 0.2s;
-}
-.metric-card.clickable {
-  cursor: pointer;
-}
-.metric-card.clickable:hover {
-  border-color: #38bdf8;
-  transform: translateY(-2px);
-}
-.metric-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.label-with-mode {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.mode-badge {
-  background: #1e293b;
-  border-color: #334155;
-  color: #38bdf8;
-  font-size: 11px;
-}
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.config-btn, .view-btn {
-  font-size: 12px;
-  color: #94a3b8;
-  padding: 0;
-}
-.config-btn:hover, .view-btn:hover {
-  color: #38bdf8;
-}
-.metric-label {
-  font-size: 13px;
-  color: #94a3b8;
-  font-weight: 500;
-}
-.metric-value {
-  font-size: 24px;
-  font-weight: 700;
-  color: #f8fafc;
-  margin-bottom: 6px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.metric-value .unit {
-  font-size: 12px;
-  font-weight: 400;
-  color: #64748b;
-  margin-left: 4px;
-}
-.metric-sub {
-  font-size: 11px;
-  color: #64748b;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.metric-sub code {
-  color: #38bdf8;
-  background: #1e293b;
-  padding: 1px 4px;
-  border-radius: 4px;
-}
 
-.chart-card {
+/* 1. 全链路拓扑驾驶舱 */
+.pipeline-card {
   background-color: #0f172a;
   border: 1px solid #1e293b;
   border-radius: 12px;
@@ -425,6 +390,11 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
 }
+.title-with-desc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .card-title {
   font-size: 15px;
   font-weight: 600;
@@ -433,83 +403,214 @@ onUnmounted(() => {
 .card-desc {
   font-size: 12px;
   color: #64748b;
-  margin-left: 12px;
 }
-.echarts-box {
-  width: 100%;
-  height: 240px;
+.header-badges {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-/* 拓扑矩阵样式 */
-.topology-card {
-  background-color: #0f172a;
-  border: 1px solid #1e293b;
-  border-radius: 12px;
-}
-.topology-grid {
+.pipeline-grid {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
+  padding: 4px 0;
 }
-.topology-node {
+.pipeline-node {
   flex: 1;
   background-color: #0b1120;
   border: 1px solid #1e293b;
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 14px 16px;
   transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
-.topology-node:hover {
-  border-color: #334155;
-  background-color: #0d1527;
+.pipeline-node.clickable {
+  cursor: pointer;
 }
+.pipeline-node.clickable:hover {
+  border-color: #38bdf8;
+  background-color: #0d1629;
+  transform: translateY(-2px);
+}
+
 .node-header {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 .node-icon {
-  font-size: 20px;
+  font-size: 22px;
 }
-.node-info {
+.node-meta {
   flex: 1;
+  min-width: 0;
 }
-.node-name {
+.node-title {
   font-size: 13px;
   font-weight: 600;
   color: #f8fafc;
 }
-.node-sub {
+.node-subtitle {
   font-size: 11px;
   color: #64748b;
 }
-.node-body {
+
+.node-main-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: #38bdf8;
+  margin-bottom: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.val-unit {
+  font-size: 11.5px;
+  color: #94a3b8;
+  font-weight: 400;
+}
+.val-divider {
+  margin: 0 6px;
+  color: #475569;
+}
+
+.node-details {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 8px;
 }
-.node-spec {
-  font-size: 11px;
-  color: #94a3b8;
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
 }
-.node-spec code {
+.detail-label {
+  color: #64748b;
+}
+.detail-val {
+  color: #cbd5e1;
+}
+.detail-val code {
   color: #38bdf8;
   background: #1e293b;
-  padding: 1px 5px;
+  padding: 1px 4px;
   border-radius: 3px;
 }
-.node-detail {
+.detail-tip {
   font-size: 11px;
   color: #64748b;
-  margin-top: 4px;
+  margin-top: 2px;
   line-height: 1.4;
 }
-.node-arrow {
+
+.pipeline-arrow {
   font-size: 18px;
   color: #334155;
   user-select: none;
+  flex-shrink: 0;
+}
+
+/* 2. 趋势图卡片 */
+.chart-card {
+  background-color: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+}
+.chart-legend-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #38bdf8;
+}
+.legend-text {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.echarts-box {
+  width: 100%;
+  height: 220px;
+}
+
+/* 3. 多群策略矩阵卡片 */
+.groups-matrix-card {
+  background-color: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+}
+.matrix-table {
+  background-color: transparent !important;
+}
+:deep(.el-table) {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: #0b1120;
+  --el-table-border-color: #1e293b;
+  --el-table-text-color: #cbd5e1;
+  --el-table-header-text-color: #94a3b8;
+}
+:deep(.el-table__row:hover > td) {
+  background-color: #131c31 !important;
+}
+.group-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.group-avatar {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 4px;
+}
+.group-names {
+  display: flex;
+  flex-direction: column;
+}
+.group-main-name {
+  color: #f8fafc;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.group-sub-id {
+  color: #64748b;
+  font-size: 11px;
+}
+.tools-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tool-tag {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.metric-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #38bdf8;
+  font-weight: 600;
+}
+.time-text {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.text-muted {
+  font-size: 12px;
+  color: #64748b;
 }
 </style>
