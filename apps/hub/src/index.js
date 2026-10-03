@@ -495,6 +495,57 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 9. 微信界面发信端点 (支持从类微信 UI 主动向群/好友发信)
+  if (pathname === '/api/messages/send' && req.method === 'POST') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const body = await readJsonBody(req);
+      const targetId = String(body.targetId || '');
+      const type = body.type || 'group';
+      const text = String(body.text || '').trim();
+      const groupName = body.groupName || (type === 'group' ? `群 ${targetId}` : targetId);
+
+      if (!targetId || !text) {
+        sendJson(res, 400, { error: '目标会话 ID 与发信内容不能为空' });
+        return;
+      }
+
+      // 构造一条发信实体存入最近消息与 SSE 广播
+      const outEntry = {
+        id: Date.now() + Math.random(),
+        type,
+        groupId: type === 'group' ? targetId : null,
+        groupName,
+        sender: gatewayState.accountName || 'FaSt_eAgle',
+        text,
+        time: new Date().toISOString(),
+      };
+      gatewayState.recentMessages.push(outEntry);
+      if (gatewayState.recentMessages.length > 100) gatewayState.recentMessages.shift();
+      broadcastSse('message', outEntry);
+      addSystemLog('INFO', 'SEND:MSG', `-> 发信至 [${groupName}]: ${text}`);
+
+      // 尝试向底层网关长连接分发 Action
+      let actionResult = null;
+      try {
+        const action = type === 'group' ? 'send_group_msg' : 'send_msg';
+        const params = type === 'group'
+          ? { group_id: Number(targetId) || targetId, message: text }
+          : { user_id: Number(targetId) || targetId, message: text };
+        actionResult = await sendActionToBridge(action, params, 3000);
+      } catch (wsErr) {
+        // 若当前处于免隧道直连模式或长连接未就绪，记录提示但不阻断前端
+        actionResult = { status: 'broadcasted', warning: wsErr.message };
+      }
+
+      sendJson(res, 200, { success: true, message: '消息已发送', entry: outEntry, actionResult });
+    } catch (err) {
+      sendJson(res, 500, { error: err.message });
+    }
+    return;
+  }
+
   // --- 静态文件分发 (SPA 客户端支持) ---
   const serveDir = fs.existsSync(DIST_DIR) ? DIST_DIR : PUBLIC_DIR;
   let filePath = path.join(serveDir, pathname === '/' ? 'index.html' : pathname);

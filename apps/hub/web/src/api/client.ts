@@ -46,3 +46,9 @@ export const systemLogsApi = {
   getLogs: (limit = 150) => apiClient.get(`/system-logs?limit=${limit}`) as Promise<any>,
   clearLogs: () => apiClient.post('/system-logs/clear') as Promise<any>,
 };
+
+// 消息收发与对话 API
+export const messagesApi = {
+  sendMessage: (data: { type: string; targetId: string; text: string; groupName?: string }) =>
+    apiClient.post('/messages/send', data) as Promise<any>,
+};
