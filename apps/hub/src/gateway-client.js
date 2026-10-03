@@ -1,5 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { upsertGroup, recordHourlyMetric } from './db.js';
+import { addSystemLog } from './system-logger.js';
 
 export const gatewayState = {
   connected: false,
@@ -91,6 +92,9 @@ function handleSocketMessage(raw) {
         const gid = String(data.group_id);
         upsertGroup(gid, groupName, sender);
         recordHourlyMetric(gid);
+        addSystemLog('INFO', 'RECV:GROUP', `[${groupName}(${gid})] <${sender}>: ${text}`);
+      } else {
+        addSystemLog('INFO', 'RECV:PRIV', `<${sender}>: ${text}`);
       }
 
       broadcastSse('message', messageEntry);
@@ -174,6 +178,7 @@ export function initGateway(cfg = {}) {
     gatewayState.status = 'connecting';
     gatewayState.statusText = `正在连接云端 Bridge (${targetUrl})...`;
     console.log(`[BridgeSync] 正在直连 Bridge 端点: ${targetUrl}`);
+    addSystemLog('INFO', 'GATEWAY', `启动直连 Bridge 模式 -> ${targetUrl}`);
     broadcastState();
 
     startBridgeSyncLoop(targetUrl);
@@ -207,6 +212,7 @@ export function initGateway(cfg = {}) {
 
       gatewayState.statusText = `已连接 Bridge 网关 (客户端数: ${activeSockets.size}, Self-ID: ${gatewayState.selfId || 'unknown'})`;
       console.log(`[GatewayServer] Bridge 客户端已连入！(URL: ${req.url}, Self-ID: ${gatewayState.selfId || 'unknown'})`);
+      addSystemLog('INFO', 'GATEWAY', `OneBot Bridge 客户端已连入 (Self-ID: ${gatewayState.selfId || 'unknown'}, URL: ${req.url})`);
       broadcastState();
 
       socket.on('message', handleSocketMessage);
@@ -222,6 +228,7 @@ export function initGateway(cfg = {}) {
           gatewayState.statusText = `已连接 Bridge 网关 (客户端数: ${activeSockets.size})`;
         }
         console.log(`[GatewayServer] Bridge 客户端断开连接 (剩余连接数: ${activeSockets.size})`);
+        addSystemLog('WARN', 'GATEWAY', `OneBot Bridge 客户端断开连接 (剩余客户端: ${activeSockets.size})`);
         broadcastState();
       });
 
@@ -288,6 +295,14 @@ async function pollBridgeStatus(targetUrl) {
           };
           gatewayState.recentMessages.push(entry);
           if (gatewayState.recentMessages.length > 100) gatewayState.recentMessages.shift();
+
+          if (m.direction === 'OUT') {
+            addSystemLog('INFO', 'SEND:MSG', `-> 发信至 [${entry.groupName}]: ${m.text}`);
+          } else {
+            const logTag = entry.type === 'group' ? 'RECV:GROUP' : 'RECV:PRIV';
+            addSystemLog('INFO', logTag, `[${entry.groupName}] <${entry.sender}>: ${m.text}`);
+          }
+
           broadcastSse('message', entry);
         }
       }
@@ -358,6 +373,7 @@ function connectRemoteClient() {
     gatewayState.status = 'connected';
     gatewayState.statusText = `已成功连接远程网关 (${gatewayState.remoteUrl})`;
     console.log(`[GatewayClient] ✔ 成功连接到远程网关：${gatewayState.remoteUrl}`);
+    addSystemLog('INFO', 'GATEWAY', `成功连接到远程网关：${gatewayState.remoteUrl}`);
     broadcastState();
   });
 
@@ -367,11 +383,13 @@ function connectRemoteClient() {
     gatewayState.connected = false;
     gatewayState.clientCount = 0;
     console.log(`[GatewayClient] 远程连接关闭 (code: ${code}, reason: ${reason || 'none'})`);
+    addSystemLog('WARN', 'GATEWAY', `远程网关连接断开 (code: ${code})`);
     scheduleReconnect(`连接断开 (code: ${code})`);
   });
 
   clientWs.on('error', (err) => {
     console.log(`[GatewayClient] 远程连接异常: ${err.message}`);
+    addSystemLog('ERROR', 'GATEWAY', `远程网关连接异常: ${err.message}`);
   });
 }
 
@@ -451,6 +469,7 @@ export function sendActionToBridge(action, params = {}, timeoutMs = 5000) {
       },
     });
 
+    addSystemLog('INFO', 'SEND:ACTION', `向 Bridge 发送 OneBot 指令 [${action}] (${JSON.stringify(params).slice(0, 80)})`);
     socket.send(JSON.stringify(payload));
   });
 }

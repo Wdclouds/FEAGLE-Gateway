@@ -40,3 +40,9 @@ export const gatewayApi = {
   saveConfig: (data: any) => apiClient.post('/gateway/config', data) as Promise<any>,
   probe: (data: any) => apiClient.post('/gateway/probe', data) as Promise<any>,
 };
+
+// 系统原生终端日志 API
+export const systemLogsApi = {
+  getLogs: (limit = 150) => apiClient.get(`/system-logs?limit=${limit}`) as Promise<any>,
+  clearLogs: () => apiClient.post('/system-logs/clear') as Promise<any>,
+};

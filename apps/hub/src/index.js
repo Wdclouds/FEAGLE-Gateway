@@ -28,6 +28,15 @@ import {
   initHermesProbe,
   hermesState,
 } from './hermes-probe.js';
+import {
+  addSystemLog,
+  getRecentSystemLogs,
+  clearSystemLogs,
+  setLogBroadcaster,
+} from './system-logger.js';
+
+// 将终端系统日志接入 SSE 广播推流
+setLogBroadcaster((logEntry) => broadcastSse('system_log', logEntry));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -118,6 +127,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const token = signJwt({ id: admin.id, username: admin.username, role: admin.role });
+      addSystemLog('INFO', 'AUTH', `管理员账号 [${admin.username}] 成功登录控制台`);
       sendJson(res, 200, {
         token,
         user: { id: admin.id, username: admin.username, role: admin.role },
@@ -207,6 +217,11 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const result = savePolicy(groupId, body, user.username);
       broadcastSse('policy_update', { groupId, ...body });
+      addSystemLog(
+        'INFO',
+        'POLICY',
+        `更新微信群策略 [${groupId}] -> 模式: ${body.responseMode || 'SMART'}, 工具数: ${body.allowedTools?.length || 0}`,
+      );
       sendJson(res, 200, { success: true, ...result });
     } catch (err) {
       sendJson(res, 400, { error: err.message });
@@ -223,6 +238,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const result = deleteGroup(groupId, user.username);
       broadcastSse('group_removed', { groupId });
+      addSystemLog('WARN', 'POLICY', `微信群 [${result.name || groupId}] 已移入防复活隔离表`);
       sendJson(res, 200, { success: true, message: `已成功移除群聊并隔离防复活`, ...result });
     } catch (err) {
       sendJson(res, 500, { error: err.message });
@@ -238,6 +254,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const days = Number(body.days) || 30;
       const result = cleanStaleGroups(days, user.username);
+      addSystemLog('INFO', 'SYSTEM', `归档清理完成: 共归档移除了 ${result.cleanedCount} 个超过 ${days} 天未活跃的已退群`);
       sendJson(res, 200, {
         success: true,
         message: `清理完成，共归档移除了 ${result.cleanedCount} 个超过 ${days} 天未活跃的已退群聊`,
@@ -412,6 +429,7 @@ const server = http.createServer(async (req, res) => {
       },
       hermes: { connected: hermesState.connected, endpoint: hermesState.endpoint },
       recentMessages: gatewayState.recentMessages.slice(-20),
+      recentLogs: getRecentSystemLogs(80),
     })}\n\n`);
 
     const unsubscribe = subscribeSse(res);
@@ -421,7 +439,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 6. 审计日志
+  // 6. 原生终端系统日志 API
+  if (pathname === '/api/system-logs' && req.method === 'GET') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const limit = Number(urlObj.searchParams.get('limit')) || 150;
+    sendJson(res, 200, { logs: getRecentSystemLogs(limit) });
+    return;
+  }
+
+  if (pathname === '/api/system-logs/clear' && req.method === 'POST') {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    clearSystemLogs();
+    addSystemLog('INFO', 'SYSTEM', `管理员 [${user.username}] 执行了一键清屏操作`);
+    sendJson(res, 200, { success: true, message: '系统终端日志已清空' });
+    return;
+  }
+
+  // 7. 审计日志
   if (pathname === '/api/audit' && req.method === 'GET') {
     const user = requireAuth(req, res);
     if (!user) return;
@@ -489,4 +526,5 @@ const server = http.createServer(async (req, res) => {
 const PORT = Number(process.env.HUB_PORT) || 6200;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[FEAGLE Hub] Control Plane v2 running at http://127.0.0.1:${PORT}`);
+  addSystemLog('INFO', 'SYSTEM', `FEAGLE Hub 控制中枢 v2.0 运行中: http://127.0.0.1:${PORT}`);
 });
