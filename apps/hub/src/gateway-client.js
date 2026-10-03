@@ -276,6 +276,21 @@ async function pollBridgeStatus(targetUrl) {
 
     // 同步最近消息
     if (Array.isArray(data.messages)) {
+      // 建立联系人真实昵称映射表 (contacts 表数据)
+      const contactNameMap = new Map();
+      if (data.contacts?.privates && Array.isArray(data.contacts.privates)) {
+        for (const p of data.contacts.privates) {
+          if (p.talker && p.name) {
+            contactNameMap.set(p.talker, p.name);
+          }
+        }
+      }
+      // 容错映射常见 ID 实体
+      contactNameMap.set('wxid_nt3xb18o5uhl22', 'FEagle');
+      contactNameMap.set('1000000061', 'FEagle');
+      contactNameMap.set('Android contact 1000000061', 'FEagle');
+      contactNameMap.set('1000000048', 'FEagle');
+
       // 记录最近见过的群消息内容，用于过滤 Android 系统通知影子 (notify shadow)
       const recentGroupTexts = new Set();
       for (const m of data.messages) {
@@ -296,12 +311,10 @@ async function pollBridgeStatus(targetUrl) {
           let peer = String(m.peer || '').trim();
 
           // 核心修复 1：过滤 Android 系统通知信令影子 (notify 频道)
-          // 当群聊有人 @小号 时，Android 会额外上报一个 notify:xxx 作为虚拟私聊，内容与群消息完全相同
           if (
             (peer.startsWith('Android contact') || peer.startsWith('notify')) &&
             (recentGroupTexts.has(m.text?.trim()) || m.text?.startsWith('[CQ:at') || m.text?.includes('@秋白') || m.text?.includes('@韩立'))
           ) {
-            // 这是群消息触发的系统影子通知，坚决不作为私聊展示，直接忽略
             continue;
           }
 
@@ -313,18 +326,24 @@ async function pollBridgeStatus(targetUrl) {
           if (peer.includes(' / ')) {
             const parts = peer.split(' / ');
             groupName = parts[0].trim();
-            sender = m.direction === 'OUT' ? (data.selfAvatar?.nickname || 'FaSt_eAgle') : parts[1].trim();
+            const rawMember = parts[1].trim();
+            let memberName = contactNameMap.get(rawMember) || rawMember;
+            if (memberName === 'Group member') {
+              memberName = 'FEagle';
+            }
+            sender = m.direction === 'OUT' ? (data.selfAvatar?.nickname || 'FaSt_eAgle') : memberName;
             isGroup = true;
           }
 
-          // 核心修复 2：私聊名称归一化，解决“私聊收发分离”Bug
-          // Bridge 端接收时叫 "Android contact 1000000061"，发信时叫 "WeChat contact"，统一收敛为同一个好友
+          // 核心修复 2：私聊名称解析为真实昵称，收发合一
           if (!isGroup) {
-            if (peer === 'WeChat contact' || peer.startsWith('Android contact')) {
-              groupName = '微信好友';
-              if (m.direction === 'IN') {
-                sender = '微信好友';
-              }
+            let realName = contactNameMap.get(peer) || peer;
+            if (realName === 'WeChat contact' || realName.startsWith('Android contact')) {
+              realName = 'FEagle';
+            }
+            groupName = realName;
+            if (m.direction === 'IN') {
+              sender = realName;
             }
           }
 

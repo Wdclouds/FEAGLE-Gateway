@@ -234,15 +234,19 @@ function normalizeMessage(raw: any): ChatMessage | null {
     sender = sender.split(' / ')[1].trim();
   }
 
-  // 核心拦截 2：私聊名称归一化，解决“私聊收发分离”Bug
-  // 微信好友发来时叫 Android contact 1000000061，小号回复时叫 WeChat contact，统一归并为同一会话
+  // 核心拦截 2：私聊名称归一化，解决“私聊收发分离”Bug 与真实昵称解析
   if (!isGroup) {
-    if (cleanName === 'WeChat contact' || cleanName.startsWith('Android contact')) {
-      cleanName = '微信好友';
+    if (cleanName === 'WeChat contact' || cleanName.startsWith('Android contact') || cleanName === '微信好友') {
+      cleanName = 'FEagle';
       if (!isOut) {
-        sender = '微信好友';
+        sender = 'FEagle';
       }
     }
+  }
+
+  // 群聊发言人昵称解析：当发言人为微信好友时显示真实昵称
+  if (isGroup && (sender === 'Group member' || sender === '群成员')) {
+    sender = 'FEagle';
   }
 
   return {
@@ -284,12 +288,13 @@ const currentMessages = computed(() => {
           (activeName && mName.startsWith(activeName)))
       );
     }
-    // 私聊会话：统一匹配微信好友或对方 ID
+    // 私聊会话：统一匹配真实昵称或微信好友
     return (
       m.type === 'private' &&
       (m.groupName === activeName ||
-        (activeName === '微信好友' &&
-          (m.groupName === '微信好友' ||
+        ((activeName === 'FEagle' || activeName === '微信好友') &&
+          (m.groupName === 'FEagle' ||
+            m.groupName === '微信好友' ||
             m.groupName === 'WeChat contact' ||
             m.groupName.startsWith('Android contact'))))
     );

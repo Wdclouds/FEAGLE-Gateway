@@ -573,7 +573,11 @@ export class AndroidWechatClient {
   async handlePrivateText(socket, message) {
     const eventId = String(message.eventId || '').trim();
     const talker = String(message.talker || '').trim();
-    const nickname = displayName(message.displayName);
+    let nickname = displayName(message.displayName);
+    if (nickname === 'WeChat contact') {
+      const resolved = this.idMap.resolveNickname(talker);
+      if (resolved) nickname = resolved;
+    }
     const peer = nickname || talker;
     const content = typeof message.content === 'string' ? message.content : '';
     if (
@@ -633,7 +637,7 @@ export class AndroidWechatClient {
 
       this.state.addMessage({
         direction: 'IN',
-        peer: `Android contact ${userId}`,
+        peer: nickname !== 'WeChat contact' ? nickname : `Android contact ${userId}`,
         text: content,
         status: 'RECEIVED',
       });
@@ -733,7 +737,11 @@ export class AndroidWechatClient {
   async handlePrivateImage(socket, message) {
     const eventId = String(message.eventId || '').trim();
     const talker = String(message.talker || '').trim();
-    const nickname = displayName(message.displayName);
+    let nickname = displayName(message.displayName);
+    if (nickname === 'WeChat contact') {
+      const resolved = this.idMap.resolveNickname(talker);
+      if (resolved) nickname = resolved;
+    }
     const imageBase64 = typeof message.imageBase64 === 'string'
       ? message.imageBase64
       : '';
@@ -794,7 +802,7 @@ export class AndroidWechatClient {
       );
       this.state.addMessage({
         direction: 'IN',
-        peer: `Android contact ${userId}`,
+        peer: nickname !== 'WeChat contact' ? nickname : `Android contact ${userId}`,
         text: '[图片]',
         status: 'RECEIVED',
       });
@@ -1010,8 +1018,16 @@ export class AndroidWechatClient {
     const eventId = String(message.eventId || '').trim();
     const talker = String(message.talker || '').trim();
     const sender = String(message.sender || '').trim();
-    const groupName = displayName(message.groupName || 'Android group');
-    const nickname = displayName(message.displayName || 'Group member');
+    let groupName = displayName(message.groupName || 'Android group');
+    if (groupName === 'Android group' || groupName === '微信群') {
+      const resolvedGroup = this.idMap.resolveNickname(talker);
+      if (resolvedGroup) groupName = resolvedGroup;
+    }
+    let nickname = displayName(message.displayName || 'Group member');
+    if (nickname === 'Group member') {
+      const resolvedMember = this.idMap.resolveNickname(sender);
+      if (resolvedMember) nickname = resolvedMember;
+    }
     const content = typeof message.content === 'string' ? message.content.trim() : '';
     if (
       !validIdentifier(eventId)
@@ -1214,9 +1230,13 @@ export class AndroidWechatClient {
 
     const commandId = await this.sendAgentText('private', talker, content);
     this.state.increment('replied');
+    const contactInfo = this.idMap.contact(onebotUserId);
+    const resolvedPeer = this.idMap.resolveNickname(contactInfo?.protocol_id)
+      || (contactInfo?.nickname !== 'WeChat contact' ? contactInfo?.nickname : '')
+      || onebotUserId;
     this.state.addMessage({
       direction: 'OUT',
-      peer: this.idMap.contact(onebotUserId)?.nickname || onebotUserId,
+      peer: resolvedPeer,
       text: content,
       status: 'SENT',
     });
@@ -1341,9 +1361,13 @@ export class AndroidWechatClient {
     this.groupSafety?.recordSuccess?.(groupId);
     this.state.increment('replied');
     this.state.incrementGroup('replied');
+    const groupInfo = this.idMap.contact(groupId);
+    const groupPeerName = this.idMap.resolveNickname(groupInfo?.protocol_id)
+      || (groupInfo?.nickname !== '微信群' ? groupInfo?.nickname : '')
+      || groupId;
     this.state.addMessage({
       direction: 'OUT',
-      peer: this.idMap.contact(groupId)?.nickname || groupId,
+      peer: groupPeerName,
       text: content,
       status: 'GROUP-SENT',
     });

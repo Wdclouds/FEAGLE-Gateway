@@ -52,22 +52,39 @@ export class IdMap {
 
   entity(kind, protocolId, stableKey = '', nickname = '') {
     const now = new Date().toISOString();
+
+    // 智能昵称反查：如果传入的昵称为空或占位符，自动从 contacts 真实联系人表反查
+    if (!nickname || nickname === 'WeChat contact' || nickname === 'Group member' || nickname === 'Android group') {
+      try {
+        const contactRow = this.db.prepare('SELECT name FROM contacts WHERE talker = ?').get(protocolId);
+        if (contactRow && contactRow.name) {
+          nickname = contactRow.name;
+        }
+      } catch {}
+    }
+
     let row = this.db.prepare(
-      'SELECT onebot_id FROM entities WHERE kind = ? AND protocol_id = ?',
+      'SELECT onebot_id, nickname FROM entities WHERE kind = ? AND protocol_id = ?',
     ).get(kind, protocolId);
 
     if (!row && stableKey) {
       row = this.db.prepare(
-        'SELECT onebot_id FROM entities WHERE kind = ? AND stable_key = ?',
+        'SELECT onebot_id, nickname FROM entities WHERE kind = ? AND stable_key = ?',
       ).get(kind, stableKey);
     }
 
     if (row) {
+      // 避免用占位符覆盖已经具有的真实昵称
+      let finalNickname = nickname;
+      if ((!finalNickname || finalNickname === 'WeChat contact' || finalNickname === 'Group member') && row.nickname) {
+        finalNickname = row.nickname;
+      }
+
       this.db.prepare(`
         UPDATE entities
         SET protocol_id = ?, stable_key = ?, nickname = ?, last_seen_at = ?
         WHERE onebot_id = ?
-      `).run(protocolId, stableKey || null, nickname || null, now, row.onebot_id);
+      `).run(protocolId, stableKey || null, finalNickname || null, now, row.onebot_id);
       return Number(row.onebot_id);
     }
 
@@ -88,6 +105,30 @@ export class IdMap {
       now,
     );
     return onebotId;
+  }
+
+  /** 根据微信 protocol_id 或 onebot_id 智能解析真实昵称/备注名 */
+  resolveNickname(protocolIdOrOnebotId, fallback = '') {
+    if (!protocolIdOrOnebotId) return fallback;
+    const target = String(protocolIdOrOnebotId).trim();
+    try {
+      // 1. 优先查 contacts 真实联系人表
+      const cRow = this.db.prepare('SELECT name FROM contacts WHERE talker = ?').get(target);
+      if (cRow && cRow.name && cRow.name.trim()) return cRow.name.trim();
+
+      // 2. 查 entities 映射表 (按 protocol_id 或 onebot_id)
+      let eRow = null;
+      if (/^\d+$/.test(target)) {
+        eRow = this.db.prepare('SELECT nickname FROM entities WHERE onebot_id = ?').get(Number(target));
+      }
+      if (!eRow || !eRow.nickname) {
+        eRow = this.db.prepare('SELECT nickname FROM entities WHERE protocol_id = ?').get(target);
+      }
+      if (eRow && eRow.nickname && eRow.nickname !== 'WeChat contact' && eRow.nickname !== 'Group member') {
+        return eRow.nickname.trim();
+      }
+    } catch {}
+    return fallback;
   }
 
   protocolId(onebotId, kind = 'user') {
