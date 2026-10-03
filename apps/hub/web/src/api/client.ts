@@ -1,8 +1,23 @@
 import axios from 'axios';
 import { ElMessage } from 'element-plus';
 
+export function resolveApiBase(): string {
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  // 自动兼容 Tauri 原生桌面环境与外部嵌入模式
+  const isTauri =
+    typeof (window as any).__TAURI_INTERNALS__ !== 'undefined' ||
+    window.location.protocol.startsWith('tauri') ||
+    window.location.protocol === 'file:';
+  if (isTauri || (window.location.port !== '6200' && window.location.port !== '5173')) {
+    return 'http://127.0.0.1:6200/api';
+  }
+  return '/api';
+}
+
 export const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '/api',
+  baseURL: resolveApiBase(),
   timeout: 10000,
 });
 

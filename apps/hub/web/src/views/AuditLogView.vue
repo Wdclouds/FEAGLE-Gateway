@@ -163,7 +163,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
-import { apiClient, systemLogsApi } from '../api/client';
+import { apiClient, systemLogsApi, resolveApiBase } from '../api/client';
 
 const terminalLogs = ref<any[]>([]);
 const auditLogs = ref<any[]>([]);
@@ -315,7 +315,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
 function setupSse() {
   const token = localStorage.getItem('hub_token');
-  const base = import.meta.env.VITE_API_BASE || '/api';
+  const base = resolveApiBase();
   const url = `${base}/events?token=${encodeURIComponent(token || '')}`;
 
   eventSource = new EventSource(url);

@@ -7,9 +7,15 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/gateway-dual-mode.test.mjs",
-    "app": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../../tools/windows/launch-hub-app.ps1"
+    "app": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../../tools/windows/launch-hub-app.ps1",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "tauri": "tauri"
   },
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1"
   }
 }

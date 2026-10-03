@@ -158,7 +158,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { Search } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
-import { apiClient } from '../api/client';
+import { apiClient, resolveApiBase } from '../api/client';
 
 interface SessionItem {
   id: string;
@@ -431,7 +431,7 @@ async function initData() {
 
 function setupSse() {
   const token = localStorage.getItem('hub_token');
-  const base = import.meta.env.VITE_API_BASE || '/api';
+  const base = resolveApiBase();
   const url = `${base}/events?token=${encodeURIComponent(token || '')}`;
 
   eventSource = new EventSource(url);
