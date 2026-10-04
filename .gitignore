@@ -18,7 +18,6 @@ deploy/**/.venv/
 # Dependencies and build output
 node_modules/
 apps/bridge/node_modules/
-apps/desktop-electron/node_modules/
 apps/bridge/.smoke-status.json
 __pycache__/
 *.py[cod]

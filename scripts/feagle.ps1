@@ -19,19 +19,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
-$projectRoot = $PSScriptRoot
+$projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 
 function Show-Usage {
   Write-Host @'
-FEAGLE WxBot Monorepo
+FEAGLE Gateway CLI
 
 Usage / 用法:
   .\feagle.cmd setup            Interactive terminal setup wizard / 终端交互式安装配置向导
   .\feagle.cmd start            Start local service stack / 启动本地全套服务栈 (Bridge + 大脑 + 记忆)
   .\feagle.cmd doctor           Run system health check / 运行系统体检大夫
-  .\feagle.cmd desktop check    Check desktop client status / 检查桌面客户端就绪状态
-  .\feagle.cmd desktop dev      Launch desktop client dev mode / 启动桌面客户端调试
-  .\feagle.cmd desktop build    Build Windows installer & portable exe / 构建安装包与便携版
   .\feagle.cmd bridge start     Start the SSH tunnel / 启动 SSH 隧道模式
   .\feagle.cmd bridge status    Check the managed tunnel / 检查隧道状态
   .\feagle.cmd bridge exit      Stop the managed tunnel / 退出隧道
@@ -97,14 +94,6 @@ switch ($Component.ToLowerInvariant()) {
     # 用 $? 反映调用是否成功。
     if (-not $?) { exit 1 }
     exit 0
-  }
-  'desktop' {
-    $action = if ($RemainingArguments.Count -gt 0) { $RemainingArguments[0] } else { 'check' }
-    $isRelease = $RemainingArguments -contains '--release'
-    $splat = @{ Action = $action }
-    if ($isRelease) { $splat['Release'] = $true }
-    & (Join-Path $projectRoot 'tools\windows\build-desktop.ps1') @splat
-    exit $LASTEXITCODE
   }
   'env' {
     . (Join-Path $projectRoot 'tools\windows\auto-env.ps1')
