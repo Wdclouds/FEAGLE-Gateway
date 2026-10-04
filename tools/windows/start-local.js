@@ -266,7 +266,7 @@ async function main() {
       pipeChildOutput(astrbotChild, '[AstrBot]', C.green);
     } else {
       console.log(`  ${C.yellow}[提示] 未在 ${astrbotDir} 检测到 AstrBot 代码文件。${C.reset}`);
-      console.log(`  ${C.dim}如需安装 AstrBot，请运行根目录下 setup-windows.bat，或在外部单独运行 AstrBot。${C.reset}`);
+      console.log(`  ${C.dim}如需安装 AstrBot，请运行 .\\feagle.cmd setup，或在外部单独运行 AstrBot。${C.reset}`);
     }
   } else if (BOT_BACKEND === 'hermes') {
     const hermesDir = resolve(PROJECT_ROOT, 'deploy/hermes');

@@ -78,11 +78,10 @@ FEAGLE-Gateway/
 │   └── protocol/         # 📜 协议契约：OneBot v11 & Android Bridge 跨端 TypeScript 契约与校验器
 ├── docs/                 # 📚 核心文档：微信 8.0.78 协议逆向、真机配置与全平台部署指南
 ├── scripts/              # 🛠️ 运维脚本：国内镜像加速测速、一键脱敏打包备份、CI/CD 发布打包工具
-├── tools/                # 🔧 调试工具：图片解析测试、Windows 桥接与 Android ADB 辅助脚本
-├── archive/              # 🗄️ 归档目录：历史旧版架构（Electron 壳、旧部署编排）归档封存
-├── feagle.cmd / .ps1     # 💻 命令行中枢：Windows 环境下的统一运维管理 CLI
-├── setup-windows.bat     # ⚡ 引导脚本：Windows 开发环境与工具链一键初始化
+├── tools/                # 🔧 调试工具：包含 Windows 本地工具链与 Android ADB 辅助脚本
+├── feagle.cmd / .ps1     # 💻 统一运维：Windows 环境下的统一命令行中枢（支持 setup / start / doctor）
 ├── install.sh            # 🐧 Linux 引导：Ubuntu / Debian / 云服务器纯终端一键交互安装
+├── docker-compose.yml    # 🐳 容器编排：云端轻量化多 Profile 部署编排
 └── README.md             # 📖 项目总览与核心架构说明
 ```
 

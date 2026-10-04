@@ -457,7 +457,7 @@ async function main() {
     console.log(`${C.bold}${C.green}              🎉 FEAGLE WxBot Windows 本地配置完成！                  ${C.reset}`);
     console.log(`${C.cyan}======================================================================${C.reset}`);
     console.log(`  ${C.bold}1. 启动方式 (推荐以下任一方式):${C.reset}`);
-    console.log(`     - 双击运行根目录快捷脚本: ${C.cyan}start-windows.bat${C.reset}`);
+    console.log(`     - 运行本地启动管理命令: ${C.cyan}.\\feagle.cmd start${C.reset}`);
     console.log(`     - 命令行运行:             ${C.cyan}.\\feagle.cmd start${C.reset}`);
     console.log('');
     console.log(`  ${C.bold}2. Web 控制台访问:${C.reset}`);
