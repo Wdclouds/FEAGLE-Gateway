@@ -112,13 +112,18 @@ npm start
 
 ### 2. 平板端驱动配对 (Android SM-X200)
 
-1. 在已 Root 的设备上安装并激活 **LSPosed**；
-2. 编译并安装 `apps/android-agent` 生成的 APK，在 LSPosed 作用域中勾选 **微信 (WeChat 8.0.78)** 并重启微信；
-3. 打开 FEAGLE Driver 应用，在设置中配置你的服务器端点与鉴权 Token：
-   ```text
-   ws://<你的服务器公网IP>:6191/android
-   ```
-4. 握手成功后，状态将呈现 **`CONNECTED 🟢`**，网关即可开始全双工收发。
+#### 📥 获取驱动 APK 安装包 (469 KB)
+* ⚡ **国内网盘高速通道（推荐，免翻墙）**：[蓝奏云下载直链](https://wwbpz.lanzout.com/iKuDb4av89ib)（提取码：`gmyj`）
+* 🌐 **GitHub Releases 官方通道**：[v0.8.0 发布页](https://github.com/Wdclouds/FEAGLE-Gateway/releases/tag/v0.8.0) | [APK 原生直链](https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk)
+* 🚀 **国内 CDN 镜像加速通道**：[ghfast 加速直链](https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk)
+* 💻 **源码本地自编译**：运行 `.\feagle.cmd android build-agent` 即可在本地全自动编译最新驱动。
+
+#### 📱 安装与激活步骤
+1. 在已 Root 的设备上安装并激活 **LSPosed**（或 KernelSU / Vector）；
+2. 安装下载好的 `feagle-driver-v0.8.0.apk`，在 LSPosed 模块作用域中**只勾选「微信 (com.tencent.mm)」**；
+3. 彻底划掉微信后台进程并重新打开微信，让 Hook 驱动注入生效；
+4. 电脑浏览器访问 Bridge Web 控制台（`http://<服务器公网IP>:6190`），点击右上角【连接设备】；
+5. 在平板打开 FEAGLE Driver，点击【扫码连接服务器】对准电脑屏幕扫码一键配对，握手成功后指示灯呈 **`CONNECTED 🟢`**。
 
 ### 3. 连接 AI 大脑与桌面中枢
 

@@ -677,6 +677,8 @@ export class DashboardServer {
       const httpProto = request.headers['x-forwarded-proto'] || 'http';
       const hostHeader = request.headers.host || `${hostname}:${this.port}`;
       const downloadUrl = `${httpProto}://${hostHeader}/download`;
+      const lanzouUrl = 'https://wwbpz.lanzout.com/iKuDb4av89ib';
+      const lanzouPass = 'gmyj';
 
       const payload = {
         endpoint,
@@ -687,7 +689,7 @@ export class DashboardServer {
 
       const rawPayload = JSON.stringify(payload);
       QRCode.toDataURL(rawPayload, { errorCorrectionLevel: 'M', margin: 2, width: 280 }, (err, qrDataUrl) => {
-        QRCode.toDataURL(downloadUrl, { errorCorrectionLevel: 'M', margin: 2, width: 280 }, (dlErr, downloadQrDataUrl) => {
+        QRCode.toDataURL(lanzouUrl, { errorCorrectionLevel: 'M', margin: 2, width: 280 }, (dlErr, downloadQrDataUrl) => {
           response.writeHead(200, {
             'Content-Type': 'application/json; charset=utf-8',
             'Cache-Control': 'no-store',
@@ -696,6 +698,8 @@ export class DashboardServer {
             endpoint,
             downloadUrl,
             downloadQrDataUrl: dlErr ? '' : downloadQrDataUrl,
+            lanzouUrl,
+            lanzouPass,
             selectedIp: hostname,
             lanIps,
             pairingCode,
@@ -732,6 +736,8 @@ export class DashboardServer {
     if (url.pathname === '/download' || url.pathname === '/downloads') {
       const httpProto = request.headers['x-forwarded-proto'] || 'http';
       const hostHeader = request.headers.host || `${this.host}:${this.port}`;
+      const lanzouUrl = 'https://wwbpz.lanzout.com/iKuDb4av89ib';
+      const lanzouPass = 'gmyj';
       const cdnUrl = 'https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
       const localUrl = '/api/device/download-agent';
 
@@ -751,6 +757,7 @@ export class DashboardServer {
     .btn { display: block; width: 100%; padding: 14px 20px; background: #0284c7; color: #fff; text-decoration: none; border-radius: 12px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4); transition: all 0.2s; }
     .btn:active { transform: scale(0.98); background: #0369a1; }
     .btn-sub { display: block; width: 100%; margin-top: 10px; padding: 10px 16px; background: rgba(51, 65, 85, 0.6); color: #cbd5e1; text-decoration: none; border-radius: 10px; font-size: 13px; }
+    .pass-tag { display: inline-block; background: #0369a1; color: #fff; padding: 2px 8px; border-radius: 6px; font-weight: bold; font-family: monospace; letter-spacing: 1px; }
     .tips { margin-top: 24px; padding: 14px; background: rgba(51, 65, 85, 0.5); border-radius: 10px; font-size: 12px; color: #cbd5e1; text-align: left; line-height: 1.6; }
     #wx-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.85); z-index: 999; padding: 20px; text-align: right; }
     .wx-arrow { font-size: 32px; color: #38bdf8; margin-right: 12px; font-weight: bold; }
@@ -765,16 +772,13 @@ export class DashboardServer {
   <div class="card">
     <div class="icon">📱</div>
     <h1>FEAGLE Driver v0.8.0</h1>
-    <p class="sub">Android 微信 8.0.78 物理 Hook 驱动 (450 KB)</p>
-    <a id="dl-link" href="${localUrl}" class="btn">⚡ 立即下载 APK 安装包</a>
-    <a href="${cdnUrl}" class="btn-sub">🌐 境外备用 CDN 下载</a>
-    <div style="margin-top: 16px; padding: 10px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; font-size: 11px; color: #94a3b8; word-break: break-all; text-align: left;">
-      <div style="margin-bottom: 4px; color: #cbd5e1; font-weight: 600;">备用手动直链 (可复制到地址栏回车):</div>
-      <span id="raw-url">${httpProto}://${hostHeader}${localUrl}</span>
-    </div>
+    <p class="sub">Android 微信 8.0.78 物理 Hook 驱动 (469 KB)</p>
+    <a id="dl-link" href="${lanzouUrl}" target="_blank" class="btn">⚡ 蓝奏云极速下载 (密码: <span class="pass-tag">${lanzouPass}</span>)</a>
+    <a href="${localUrl}" class="btn-sub">💾 服务器直接下载 (备用)</a>
+    <a href="${cdnUrl}" class="btn-sub">🌐 GitHub Releases 下载 (备用)</a>
     <div class="tips">
       <b>📌 安装后续步骤：</b><br>
-      1. 下载完成后在平板上点击安装；<br>
+      1. 蓝奏云打开后输入提取码 <b>${lanzouPass}</b> 下载 APK 并安装；<br>
       2. 打开 <b>LSPosed</b> 模块管理器并勾选 <b>微信</b>；<br>
       3. 强制停止微信并重新打开微信生效；<br>
       4. 回到电脑屏幕切换至第二步扫码配对。

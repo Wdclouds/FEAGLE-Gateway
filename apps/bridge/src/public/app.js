@@ -1633,8 +1633,13 @@ async function loadPairCode() {
       if (downloadQrLoading) downloadQrLoading.style.display = 'none';
     }
     if (data.downloadUrl && downloadUrlLink) {
-      downloadUrlLink.href = data.downloadUrl;
-      downloadUrlLink.textContent = data.downloadUrl;
+      const finalUrl = data.lanzouUrl || data.downloadUrl;
+      downloadUrlLink.href = finalUrl;
+      downloadUrlLink.textContent = finalUrl;
+    }
+    const downloadPassText = $('download-pass-text');
+    if (downloadPassText && data.lanzouPass) {
+      downloadPassText.textContent = data.lanzouPass;
     }
     if (pairEndpoint) {
       let desc = data.endpoint || '--';
