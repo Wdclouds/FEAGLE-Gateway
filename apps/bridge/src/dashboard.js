@@ -675,7 +675,7 @@ export class DashboardServer {
 
       const httpProto = request.headers['x-forwarded-proto'] || 'http';
       const hostHeader = request.headers.host || `${hostname}:${this.port}`;
-      const downloadUrl = `${httpProto}://${hostHeader}/downloads/feaglewxbot-agent.apk`;
+      const downloadUrl = `${httpProto}://${hostHeader}/download`;
 
       const payload = {
         endpoint,
@@ -724,6 +724,70 @@ export class DashboardServer {
         downloadUrl: '/api/device/download-agent',
         releaseNotes: 'FEAGLE Gateway Driver 0.8.0: 支持扫码直接下载、免密配对与微信 8.0.78 深度适配',
       }));
+      return;
+    }
+
+    // ---- GET /download (移动端优雅下载引导落地页) ----
+    if (url.pathname === '/download' || url.pathname === '/downloads') {
+      const httpProto = request.headers['x-forwarded-proto'] || 'http';
+      const hostHeader = request.headers.host || `${this.host}:${this.port}`;
+      const apkUrl = `${httpProto}://${hostHeader}/downloads/feaglewxbot-agent.apk`;
+
+      const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>FEAGLE Driver 下载</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; text-align: center; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 20px; padding: 32px 24px; max-width: 380px; width: 100%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
+    .icon { font-size: 54px; margin-bottom: 16px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #38bdf8; }
+    p.sub { font-size: 13px; color: #94a3b8; margin-bottom: 24px; }
+    .btn { display: block; width: 100%; padding: 14px 20px; background: #0284c7; color: #fff; text-decoration: none; border-radius: 12px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4); transition: all 0.2s; }
+    .btn:active { transform: scale(0.98); background: #0369a1; }
+    .tips { margin-top: 24px; padding: 14px; background: rgba(51, 65, 85, 0.5); border-radius: 10px; font-size: 12px; color: #cbd5e1; text-align: left; line-height: 1.6; }
+    #wx-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.85); z-index: 999; padding: 20px; text-align: right; }
+    .wx-arrow { font-size: 32px; color: #38bdf8; margin-right: 12px; font-weight: bold; }
+    .wx-text { font-size: 16px; color: #fff; margin-top: 10px; line-height: 1.6; text-align: right; }
+  </style>
+</head>
+<body>
+  <div id="wx-overlay">
+    <div class="wx-arrow">↗</div>
+    <div class="wx-text">微信内无法直接下载 APK<br>请点击右上角 <b>【···】</b><br>选择 <b>【在浏览器中打开】</b> 即可下载</div>
+  </div>
+  <div class="card">
+    <div class="icon">📱</div>
+    <h1>FEAGLE Driver v0.8.0</h1>
+    <p class="sub">Android 微信 8.0.78 物理 Hook 驱动 (450 KB)</p>
+    <a id="dl-link" href="${apkUrl}" class="btn">📥 立即下载 APK</a>
+    <div class="tips">
+      <b>📌 安装后续步骤：</b><br>
+      1. 下载后直接在平板点击安装；<br>
+      2. 打开 <b>LSPosed</b> 模块管理器并勾选 <b>微信</b>；<br>
+      3. 强制停止微信并重新打开微信生效；<br>
+      4. 回到电脑屏幕切换至第二步扫码配对。
+    </div>
+  </div>
+  <script>
+    const isWechat = /MicroMessenger/i.test(navigator.userAgent);
+    if (isWechat) {
+      document.getElementById('wx-overlay').style.display = 'block';
+    } else {
+      setTimeout(() => { window.location.href = '${apkUrl}'; }, 600);
+    }
+  </script>
+</body>
+</html>`;
+
+      response.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
+      response.end(html);
       return;
     }
 
