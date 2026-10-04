@@ -1586,20 +1586,55 @@ const closePairBtn = $('close-pair-modal');
 const refreshPairBtn = $('refresh-pair-code');
 const pairQrImg = $('pair-qr-img');
 const pairQrLoading = $('pair-qr-loading');
+const downloadQrImg = $('download-qr-img');
+const downloadQrLoading = $('download-qr-loading');
+const downloadUrlLink = $('download-url-link');
+const pairTabDownload = $('pair-tab-download');
+const pairTabPair = $('pair-tab-pair');
+const pairPaneDownload = $('pair-pane-download');
+const pairPanePair = $('pair-pane-pair');
 const pairEndpoint = $('pair-endpoint');
 const pairDeviceState = $('pair-device-state');
 
+function switchPairModalTab(tab) {
+  if (tab === 'download') {
+    pairTabDownload?.classList.add('active');
+    pairTabPair?.classList.remove('active');
+    if (pairPaneDownload) pairPaneDownload.hidden = false;
+    if (pairPanePair) pairPanePair.hidden = true;
+  } else {
+    pairTabPair?.classList.add('active');
+    pairTabDownload?.classList.remove('active');
+    if (pairPaneDownload) pairPaneDownload.hidden = true;
+    if (pairPanePair) pairPanePair.hidden = false;
+  }
+}
+
+pairTabDownload?.addEventListener('click', () => switchPairModalTab('download'));
+pairTabPair?.addEventListener('click', () => switchPairModalTab('pair'));
+
 async function loadPairCode() {
-  if (!pairQrImg) return;
-  pairQrLoading.style.display = 'block';
-  pairQrImg.style.display = 'none';
+  if (pairQrLoading) pairQrLoading.style.display = 'block';
+  if (pairQrImg) pairQrImg.style.display = 'none';
+  if (downloadQrLoading) downloadQrLoading.style.display = 'block';
+  if (downloadQrImg) downloadQrImg.style.display = 'none';
+
   try {
     const res = await fetch('/api/device/pair-code');
     const data = await res.json();
-    if (data.qrDataUrl) {
+    if (data.qrDataUrl && pairQrImg) {
       pairQrImg.src = data.qrDataUrl;
       pairQrImg.style.display = 'block';
-      pairQrLoading.style.display = 'none';
+      if (pairQrLoading) pairQrLoading.style.display = 'none';
+    }
+    if (data.downloadQrDataUrl && downloadQrImg) {
+      downloadQrImg.src = data.downloadQrDataUrl;
+      downloadQrImg.style.display = 'block';
+      if (downloadQrLoading) downloadQrLoading.style.display = 'none';
+    }
+    if (data.downloadUrl && downloadUrlLink) {
+      downloadUrlLink.href = data.downloadUrl;
+      downloadUrlLink.textContent = data.downloadUrl;
     }
     if (pairEndpoint) {
       let desc = data.endpoint || '--';
@@ -1614,7 +1649,8 @@ async function loadPairCode() {
       pairDeviceState.style.color = isConn ? '#22c55e' : '#f59e0b';
     }
   } catch (e) {
-    pairQrLoading.textContent = '获取配对二维码失败，请重试';
+    if (pairQrLoading) pairQrLoading.textContent = '获取配对二维码失败，请重试';
+    if (downloadQrLoading) downloadQrLoading.textContent = '获取下载二维码失败';
   }
 }
 

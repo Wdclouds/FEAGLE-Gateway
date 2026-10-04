@@ -259,22 +259,42 @@
     </div>
   </nav>
 
-  <!-- ══════════ 弹窗 · 平板扫码免密配对 ══════════ -->
+  <!-- ══════════ 弹窗 · 平板扫码下载与免密配对 ══════════ -->
   <div id="pair-modal" class="modal-backdrop" hidden>
     <div class="modal-card">
       <div class="modal-header">
-        <strong>📱 平板设备免密扫码配对</strong>
+        <strong>📱 平板设备安装与配对向导</strong>
         <button id="close-pair-modal" class="close-btn" type="button">×</button>
       </div>
+      <div class="modal-tabs" style="display: flex; gap: 8px; padding: 12px 16px 0; border-bottom: 1px solid var(--feagle-border);">
+        <button id="pair-tab-download" class="button hollow active" type="button" style="flex: 1; padding: 8px 4px; font-size: 13px;">📥 第一步：扫码下载 APK</button>
+        <button id="pair-tab-pair" class="button hollow" type="button" style="flex: 1; padding: 8px 4px; font-size: 13px;">📱 第二步：扫码免密配对</button>
+      </div>
       <div class="modal-body">
-        <p class="modal-desc">打开平板端 FEAGLE Agent，点击首页 <b>【扫码连接服务器】</b> 并对准下方二维码：</p>
-        <div class="qr-container">
-          <img id="pair-qr-img" class="pair-qr-img" alt="配对二维码" src="" />
-          <div id="pair-qr-loading" class="pair-qr-loading">生成安全配对码中...</div>
+        <!-- 视图 1：扫码下载 APK -->
+        <div id="pair-pane-download">
+          <p class="modal-desc">用平板自带相机或浏览器“扫一扫”，直接下载最新版 <b>FEAGLE Driver</b>：</p>
+          <div class="qr-container">
+            <img id="download-qr-img" class="pair-qr-img" alt="下载二维码" src="" />
+            <div id="download-qr-loading" class="pair-qr-loading">生成下载二维码中...</div>
+          </div>
+          <div class="pair-info-box">
+            <div><small>直接下载直链:</small> <a id="download-url-link" href="#" target="_blank" style="color: var(--feagle-accent); word-break: break-all;">--</a></div>
+            <div style="margin-top: 6px; color: var(--feagle-muted); font-size: 12px;">💡 提示：下载安装后，在 LSPosed 勾选微信作用域并重启微信，然后切换到第二步配对。</div>
+          </div>
         </div>
-        <div class="pair-info-box">
-          <div><small>连接节点:</small> <span id="pair-endpoint">--</span></div>
-          <div><small>设备状态:</small> <span id="pair-device-state" class="status-badge">等待扫码</span></div>
+
+        <!-- 视图 2：扫码免密配对 -->
+        <div id="pair-pane-pair" hidden>
+          <p class="modal-desc">打开平板端 FEAGLE Driver，点击首页 <b>【扫码连接服务器】</b> 并对准下方二维码：</p>
+          <div class="qr-container">
+            <img id="pair-qr-img" class="pair-qr-img" alt="配对二维码" src="" />
+            <div id="pair-qr-loading" class="pair-qr-loading">生成安全配对码中...</div>
+          </div>
+          <div class="pair-info-box">
+            <div><small>连接节点:</small> <span id="pair-endpoint">--</span></div>
+            <div><small>设备状态:</small> <span id="pair-device-state" class="status-badge">等待扫码</span></div>
+          </div>
         </div>
       </div>
       <div class="modal-footer">

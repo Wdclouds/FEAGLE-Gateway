@@ -673,6 +673,10 @@ export class DashboardServer {
         ? `${proto}://${hostname}:${wsPort}${wsPath}?mode=pair`
         : `${proto}://${hostname}:${wsPort}${wsPath}`;
 
+      const httpProto = req.headers['x-forwarded-proto'] || 'http';
+      const hostHeader = req.headers.host || `${hostname}:${this.port}`;
+      const downloadUrl = `${httpProto}://${hostHeader}/downloads/feaglewxbot-agent.apk`;
+
       const payload = {
         endpoint,
         ...(token ? { token } : {}),
@@ -682,20 +686,24 @@ export class DashboardServer {
 
       const rawPayload = JSON.stringify(payload);
       QRCode.toDataURL(rawPayload, { errorCorrectionLevel: 'M', margin: 2, width: 280 }, (err, qrDataUrl) => {
-        response.writeHead(200, {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store',
+        QRCode.toDataURL(downloadUrl, { errorCorrectionLevel: 'M', margin: 2, width: 280 }, (dlErr, downloadQrDataUrl) => {
+          response.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+          });
+          response.end(JSON.stringify({
+            endpoint,
+            downloadUrl,
+            downloadQrDataUrl: dlErr ? '' : downloadQrDataUrl,
+            selectedIp: hostname,
+            lanIps,
+            pairingCode,
+            expiresAt,
+            timestamp: payload.timestamp,
+            qrDataUrl: err ? '' : qrDataUrl,
+            deviceStatus: this.state.snapshot().android?.deviceStatus || 'DISCONNECTED',
+          }));
         });
-        response.end(JSON.stringify({
-          endpoint,
-          selectedIp: hostname,
-          lanIps,
-          pairingCode,
-          expiresAt,
-          timestamp: payload.timestamp,
-          qrDataUrl: err ? '' : qrDataUrl,
-          deviceStatus: this.state.snapshot().android?.deviceStatus || 'DISCONNECTED',
-        }));
       });
       return;
     }
@@ -703,7 +711,7 @@ export class DashboardServer {
     // ---- GET /api/device/check-update (OTA 版本检查) ----
     if (url.pathname === '/api/device/check-update') {
       const clientVer = String(url.searchParams.get('version') || '0.0.0').trim();
-      const latestVer = '0.7.0';
+      const latestVer = '0.8.0';
       const hasUpdate = clientVer !== latestVer;
       response.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -714,7 +722,7 @@ export class DashboardServer {
         currentVersion: clientVer,
         latestVersion: latestVer,
         downloadUrl: '/api/device/download-agent',
-        releaseNotes: 'FEAGLE WxBot Agent 0.7.0: 支持扫码免密配对与OTA静默自更新机制',
+        releaseNotes: 'FEAGLE Gateway Driver 0.8.0: 支持扫码直接下载、免密配对与微信 8.0.78 深度适配',
       }));
       return;
     }
