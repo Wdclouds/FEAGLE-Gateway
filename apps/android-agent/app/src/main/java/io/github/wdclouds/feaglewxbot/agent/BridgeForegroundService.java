@@ -417,11 +417,33 @@ public final class BridgeForegroundService extends Service {
             String token = prefs.getString(AgentProtocol.KEY_TOKEN, "").trim();
             String pairingCode = prefs.getString(
                     AgentProtocol.KEY_PAIRING_CODE, "").trim();
+
+            if (token.isEmpty()) {
+                try {
+                    URI u = URI.create(endpoint);
+                    String q = u.getQuery();
+                    if (q != null) {
+                        for (String param : q.split("&")) {
+                            String[] kv = param.split("=", 2);
+                            if (kv.length == 2) {
+                                if ("token".equalsIgnoreCase(kv[0])) {
+                                    token = kv[1].trim();
+                                } else if ("pairingCode".equalsIgnoreCase(kv[0])) {
+                                    pairingCode = kv[1].trim();
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+
             boolean pairingMode = token.isEmpty();
             if (pairingMode && !pairingCode.matches("\\d{8}")) {
                 setStatus("请输入 8 位配对码 / pairing code required");
                 return;
             }
+            final String activePairingCode = pairingCode;
             if (!pairingMode) {
                 headers.put("Authorization", "Bearer " + token);
             }
@@ -437,7 +459,7 @@ public final class BridgeForegroundService extends Service {
                         if (pairingMode) {
                             setStatus("正在配对 / pairing");
                             JSONObject request = baseEnvelope("pair_request");
-                            put(request, "pairingCode", pairingCode);
+                            put(request, "pairingCode", activePairingCode);
                             send(request.toString());
                             return;
                         }

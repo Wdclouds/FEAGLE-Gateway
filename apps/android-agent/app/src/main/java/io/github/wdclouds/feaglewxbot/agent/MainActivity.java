@@ -32,6 +32,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.app.AlertDialog;
+import org.json.JSONObject;
 
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -94,6 +96,7 @@ public class MainActivity extends Activity {
     private TextView targetIpText;
     private TextView currentGatewayText;
     private EditText gatewayInput;
+    private EditText tokenInput;
     private Button startStopBtn;
     private TextView statDeviceText;
     private TextView statLatencyText;
@@ -309,6 +312,29 @@ public class MainActivity extends Activity {
         gatewayInput.setPadding(dp(12), dp(10), dp(12), dp(10));
         layout.addView(gatewayInput);
 
+        TextView tokenLabel = new TextView(this);
+        tokenLabel.setText("网关鉴权 Token / 8位配对码 (可选):");
+        tokenLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        tokenLabel.setTextColor(COLOR_TEXT_SEC);
+        tokenLabel.setPadding(0, dp(10), 0, dp(6));
+        layout.addView(tokenLabel);
+
+        tokenInput = new EditText(this);
+        tokenInput.setContentDescription("input_gateway_token");
+        tokenInput.setHint("输入 Token 或 8位配对码");
+        tokenInput.setHintTextColor(COLOR_TEXT_SEC);
+        String savedToken = prefs.getString(AgentProtocol.KEY_TOKEN, "");
+        if (savedToken.isEmpty()) {
+            savedToken = prefs.getString(AgentProtocol.KEY_PAIRING_CODE, "");
+        }
+        tokenInput.setText(savedToken);
+        tokenInput.setTextColor(COLOR_TEXT_PRI);
+        tokenInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tokenInput.setTypeface(Typeface.MONOSPACE);
+        tokenInput.setBackground(createRoundedBackground(COLOR_SURFACE, COLOR_BORDER, dp(6)));
+        tokenInput.setPadding(dp(12), dp(10), dp(12), dp(10));
+        layout.addView(tokenInput);
+
         LinearLayout configBtnRow = new LinearLayout(this);
         configBtnRow.setOrientation(LinearLayout.HORIZONTAL);
         configBtnRow.setPadding(0, dp(8), 0, dp(4));
@@ -316,19 +342,12 @@ public class MainActivity extends Activity {
         Button saveBtn = createStyledButton("保存并重连", "btn_save_gateway", COLOR_ACCENT, true);
         saveBtn.setOnClickListener(v -> {
             String newEndpoint = gatewayInput.getText().toString().trim();
+            String newToken = tokenInput.getText().toString().trim();
             if (newEndpoint.isEmpty()) {
                 Toast.makeText(this, "请输入有效的网关地址", Toast.LENGTH_SHORT).show();
                 return;
             }
-            prefs.edit().putString(AgentProtocol.KEY_ENDPOINT, newEndpoint).apply();
-            Toast.makeText(this, "配置已保存，正在发起重连", Toast.LENGTH_SHORT).show();
-            LogCollector.log("CONFIG", "保存新网关地址: " + newEndpoint);
-            if (isBridgeServiceRunning()) {
-                sendBroadcast(new Intent("io.github.wdclouds.feaglewxbot.agent.ACTION_RECONNECT").setPackage(getPackageName()));
-            } else {
-                startAgent();
-            }
-            updateOverviewState();
+            applyConfig(newEndpoint, newToken);
         });
 
         Button qrBtn = createStyledButton("扫码配置", "btn_qr_scan", COLOR_SURFACE, false);
@@ -338,7 +357,7 @@ public class MainActivity extends Activity {
                 intent.putExtra("SCAN_MODE", "QR_CODE_MODE");
                 startActivityForResult(intent, 300);
             } catch (Exception e) {
-                Toast.makeText(this, "请安装条码扫描器或手动输入", Toast.LENGTH_SHORT).show();
+                handleScanFailure();
             }
         });
 
@@ -807,6 +826,101 @@ public class MainActivity extends Activity {
             cm.setPrimaryClip(ClipData.newPlainText("FEAGLE_LOGS", logs));
             Toast.makeText(this, "已复制最近 50 条日志到剪贴板", Toast.LENGTH_SHORT).show();
             LogCollector.log("SYS", "用户/Agent 已复制最近 50 条终端日志");
+        }
+    }
+
+    private void applyConfig(String endpoint, String token) {
+        SharedPreferences.Editor editor = prefs.edit().putString(AgentProtocol.KEY_ENDPOINT, endpoint);
+        if (token != null && !token.trim().isEmpty()) {
+            String trimmedToken = token.trim();
+            if (trimmedToken.matches("\\d{8}")) {
+                editor.putString(AgentProtocol.KEY_PAIRING_CODE, trimmedToken);
+                editor.remove(AgentProtocol.KEY_TOKEN);
+            } else {
+                editor.putString(AgentProtocol.KEY_TOKEN, trimmedToken);
+                editor.remove(AgentProtocol.KEY_PAIRING_CODE);
+            }
+        }
+        editor.apply();
+        Toast.makeText(this, "配置已保存，正在发起重连", Toast.LENGTH_SHORT).show();
+        LogCollector.log("CONFIG", "保存新网关地址: " + endpoint + (token != null && !token.trim().isEmpty() ? " (含Token)" : ""));
+        if (isBridgeServiceRunning()) {
+            sendBroadcast(new Intent("io.github.wdclouds.feaglewxbot.agent.ACTION_RECONNECT").setPackage(getPackageName()));
+        } else {
+            startAgent();
+        }
+        updateOverviewState();
+    }
+
+    private boolean applyConfigString(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return false;
+        raw = raw.trim();
+        try {
+            if (raw.startsWith("{") && raw.endsWith("}")) {
+                JSONObject obj = new JSONObject(raw);
+                String ep = obj.optString("endpoint", "").trim();
+                String tk = obj.optString("token", "").trim();
+                String pc = obj.optString("pairingCode", "").trim();
+                if (!ep.isEmpty()) {
+                    if (gatewayInput != null) gatewayInput.setText(ep);
+                    String tokenToUse = !tk.isEmpty() ? tk : pc;
+                    if (tokenInput != null) tokenInput.setText(tokenToUse);
+                    applyConfig(ep, tokenToUse);
+                    return true;
+                }
+            } else if (raw.startsWith("ws://") || raw.startsWith("wss://")) {
+                String ep = raw;
+                String tk = "";
+                if (ep.contains("?token=") || ep.contains("&token=")) {
+                    try {
+                        Uri u = Uri.parse(ep);
+                        tk = u.getQueryParameter("token");
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (gatewayInput != null) gatewayInput.setText(ep);
+                if (tk != null && !tk.isEmpty() && tokenInput != null) tokenInput.setText(tk);
+                applyConfig(ep, tk != null ? tk : "");
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    private void handleScanFailure() {
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        String clipText = "";
+        if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
+            CharSequence cs = cm.getPrimaryClip().getItemAt(0).getText();
+            if (cs != null) clipText = cs.toString().trim();
+        }
+
+        final String finalClip = clipText;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("未检测到条码扫描器");
+        builder.setMessage("平板未安装独立扫描应用。\n\n你可以：\n1. 直接在上方输入网关地址和 Token；\n2. 使用微信或系统相机扫描电脑屏幕二维码，复制扫描结果后点击下方【从剪贴板读取】。");
+        builder.setPositiveButton("从剪贴板读取", (d, w) -> {
+            if (!applyConfigString(finalClip)) {
+                Toast.makeText(this, "剪贴板未包含有效配对数据，请手动复制或输入", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "已从剪贴板成功加载网关配置！", Toast.LENGTH_SHORT).show();
+            }
+        });
+        builder.setNegativeButton("手动输入", null);
+        builder.show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == 300 && resultCode == RESULT_OK && data != null) {
+            String scanResult = data.getStringExtra("SCAN_RESULT");
+            if (scanResult != null && !scanResult.isEmpty()) {
+                if (!applyConfigString(scanResult)) {
+                    Toast.makeText(this, "扫描内容格式不符: " + scanResult, Toast.LENGTH_SHORT).show();
+                }
+            }
         }
     }
 
