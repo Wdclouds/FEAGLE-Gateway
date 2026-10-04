@@ -38,6 +38,8 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+.hermes/
+
 
 # Local overrides and archives
 .tools/
