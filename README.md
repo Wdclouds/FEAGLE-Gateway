@@ -20,9 +20,10 @@
 **FEAGLE Gateway** 是专为微信智能体生态打造的**极简高性能协议网关**。
 
 不同于传统易被风控封号的 Web 协议（wechat4u/puppeteer）或逆向私有 iPad 协议，FEAGLE Gateway 采用**物理真机 Hook + 标准化协议解耦**路线：
-1. **物理驱动层 (Driver)**：在三星平板或物理安卓机上通过 LSPosed/Xposed 注入真实微信 8.0.78，只做最纯粹的底层报文拦截与物理发信；
-2. **协议网关层 (Bridge)**：在 Linux 云端服务器运行超轻量 Node.js 微服务，将微信私有报文实时转译为行业通用的 **OneBot v11** 标准协议，供上层大模型框架（AstrBot、Hermes Agent 或任意 OneBot 客户端）消费；
-3. **治理控制层 (Hub)**：配套独立的桌面管理大盘 [FEAGLE-Hub](https://github.com/Wdclouds/FEAGLE-Hub)，实现端到端监控与多群 Prompt 编排。
+1. **物理驱动层 (Driver)**：在三星平板或安卓真机上通过 LSPosed 注入真实微信 8.0.78，只做最纯粹的底层报文拦截与物理硬件发信；
+2. **协议网关层 (Bridge)**：在 Linux 云端服务器运行超轻量 Node.js 微服务，将微信私有报文实时双向转译为行业通用的 **OneBot v11** 标准协议，供各类上层大模型框架消费：
+   - **🤖 AstrBot 用户**：即插即用，通过 OneBot 反向 WS（`:6199`）直接接入，在 AstrBot 原生 Web 后台管理，无需安装任何额外客户端；
+   - **⚡ Hermes Agent 用户**：原生消费 OneBot 协议流，亦可选配专供 Hermes 打造的独立桌面控制中枢 [FEAGLE-Hub](https://github.com/Wdclouds/FEAGLE-Hub)（拓扑大盘、群策略编排、Mnemosyne 记忆桥接）。
 
 ---
 
@@ -38,12 +39,13 @@
                                                              └──────────────────┬──────────────────┘
                                                                                 │
                                               ┌─────────────────────────────────┴───────────────────────────────┐
-                                              │ OneBot v11 反向 WS (:6199)                                      │ HTTP / SSE (:6190)
+                                              │ OneBot v11 反向 WS (:6199)                                      │ REST / SSE (:6190)
                                               ▼                                                                 ▼
-                                 ┌─────────────────────────┐                                       ┌─────────────────────────┐
-                                 │ 🧠 上层 AI 决策大脑     │                                       │ 🖥️ 桌面中枢控制台       │
-                                 │ AstrBot / Hermes Agent  │                                       │ FEAGLE-Hub (Vue 3 + TS) │
-                                 └─────────────────────────┘                                       └─────────────────────────┘
+                              ┌──────────────────────────────┐                                    ┌──────────────────────────────┐
+                              │ 🧠 通用 AI 大脑 (直接对接)   │                                    │ 🖥️ Hermes 专供桌面控制中枢   │
+                              │ • AstrBot (原生 6185 WebUI)  │                                    │ [FEAGLE-Hub 独立项目]        │
+                              │ • Hermes Agent / NoneBot     │                                    │ (Vue 3 + Tauri 跨端客户端)   │
+                              └──────────────────────────────┘                                    └──────────────────────────────┘
 ```
 
 ---
@@ -71,7 +73,6 @@ FEAGLE-Gateway/
 ├── apps/
 │   ├── android-agent/    # 📱 物理驱动层：Android 微信 8.0.78 LSPosed Hook 驱动源码 (Java)
 │   ├── bridge/           # ☁️ 协议网关层：Node.js 极简协议网关微服务 (OneBot v11 / REST / SSE)
-│   ├── hub/              # 🖥️ 治理中枢：FEAGLE-Hub v2 桌面可视化控制大盘 (Vue 3 + TS + Tauri v2 原生桌面壳)
 │   └── plugins/          # 🧩 插件槽位：支持自定义智能体能力与业务扩展
 ├── packages/
 │   └── protocol/         # 📜 协议契约：OneBot v11 & Android Bridge 跨端 TypeScript 契约与校验器
