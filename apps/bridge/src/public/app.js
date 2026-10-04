@@ -152,20 +152,23 @@ const convLoaded = { flow: false, memory: false, persona: false, tools: false, l
 
 function showSelectedGroup(context) {
   const name = $('selected-group-name');
+  if (!name) return;
   const badge = $('conv-kind-badge');
   const tabs = $('conv-tabs');
   const modeActions = $('group-mode-actions');
   if (!context) {
     name.textContent = '请选择联系人';
-    badge.hidden = true;
-    tabs.hidden = true;
+    if (badge) badge.hidden = true;
+    if (tabs) tabs.hidden = true;
     if (modeActions) modeActions.hidden = true;
     return;
   }
   name.textContent = context.name || '未命名联系人';
-  badge.textContent = context.kind === 'group' ? '群聊' : '私聊';
-  badge.hidden = false;
-  tabs.hidden = false;
+  if (badge) {
+    badge.textContent = context.kind === 'group' ? '群聊' : '私聊';
+    badge.hidden = false;
+  }
+  if (tabs) tabs.hidden = false;
 
   if (modeActions) {
     if (context.kind === 'group') {
@@ -891,7 +894,11 @@ function renderGroupChat(state) {
     ...(contacts.privates || []).map((contact) => ({ ...contact, kind: 'private' })),
   ];
 
-  // 仅严格展示当前 contacts 中的真实群聊与私聊联系人
+  // 如果页面中没有 group-list（已瘦身解耦），直接安全返回
+  const groupListEl = $('group-list');
+  if (!groupListEl) {
+    return;
+  }
 
   if (!contactRows.length) {
     const empty = document.createElement('p');
@@ -899,7 +906,7 @@ function renderGroupChat(state) {
     empty.textContent = contacts.status === 'READY'
       ? '当前没有可用的群聊或私聊'
       : '点击顶部 Logo 同步群聊与私聊';
-    $('group-list').replaceChildren(empty);
+    groupListEl.replaceChildren(empty);
     selectedGroupId = '';
     showSelectedGroup(null);
     return;
@@ -1106,9 +1113,9 @@ async function setSleepOverride(enabled) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 视图路由（hash-based SPA）
+// 视图路由（hash-based SPA：总览、管道遥测、终端日志、插件）
 // ─────────────────────────────────────────────────────────────
-const VIEWS = ['overview', 'traffic', 'groups', 'settings-traffic'];
+const VIEWS = ['overview', 'settings-traffic', 'traffic', 'plugins'];
 
 function currentView() {
   const hash = window.location.hash.replace(/^#\/?/, '');
@@ -1123,12 +1130,13 @@ function applyView(view) {
     link.classList.toggle('active', link.dataset.viewLink === view);
   });
   const logo = $('brand-logo');
-  const canSyncContacts = view === 'groups';
-  logo.classList.toggle('sync-enabled', canSyncContacts);
-  logo.tabIndex = canSyncContacts ? 0 : -1;
-  logo.setAttribute('aria-disabled', String(!canSyncContacts));
-  logo.setAttribute('aria-label', canSyncContacts ? '同步群聊和私聊联系人' : 'FEAGLE Logo');
-  logo.title = canSyncContacts ? '点击同步群聊和私聊' : '';
+  if (logo) {
+    logo.classList.remove('sync-enabled');
+    logo.tabIndex = -1;
+    logo.setAttribute('aria-disabled', 'true');
+    logo.setAttribute('aria-label', 'FEAGLE Logo');
+    logo.title = '';
+  }
   // 懒加载流量安全设置
   if (view === 'settings-traffic') {
     loadSettings();

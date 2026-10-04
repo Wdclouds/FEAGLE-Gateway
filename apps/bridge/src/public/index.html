@@ -106,79 +106,24 @@
       </section>
     </section>
 
-    <!-- ══════════ 视图 3 · 消息联系人 MESSAGES ══════════ -->
-    <section class="view" data-view="groups">
-      <section class="panel group-panel">
-        <div class="group-layout">
-          <div id="group-list" class="group-list" role="list" aria-label="消息联系人列表">
-            <p class="empty-inline">点击顶部 Logo 同步群聊与私聊</p>
-          </div>
-          <section class="group-feature-placeholder" aria-live="polite">
-            <header class="group-feature-head">
-              <strong id="selected-group-name">请选择联系人</strong>
-              <span id="conv-kind-badge" class="conv-kind-badge" hidden></span>
-              <div class="group-mode-actions" id="group-mode-actions" hidden>
-                <span class="group-mode-label">接收模式:</span>
-                <button class="mode-btn" data-mode="MENTION_ONLY" type="button">艾特回复</button>
-                <button class="mode-btn" data-mode="OBSERVE" type="button">仅接收</button>
-                <button class="mode-btn" data-mode="OFF" type="button">不接收</button>
-              </div>
-            </header>
-            <nav class="conv-tabs" id="conv-tabs" hidden aria-label="会话功能">
-              <button class="conv-tab active" type="button" data-tab="flow">对话流</button>
-              <button class="conv-tab" type="button" data-tab="memory">记忆</button>
-              <button class="conv-tab" type="button" data-tab="persona">画像</button>
-              <button class="conv-tab" type="button" data-tab="tools">工具栏</button>
-              <button class="conv-tab" type="button" data-tab="logs">日志</button>
-            </nav>
-            <div class="conv-body">
-              <div class="conv-pane active" data-pane="flow">
-                <div id="flow-list" class="flow-list"><p class="empty-inline">选择左侧联系人查看对话流</p></div>
-                <button id="flow-load-more" class="flow-more" type="button" hidden>加载更早的消息</button>
-              </div>
-              <div class="conv-pane" data-pane="memory">
-                <div class="memory-toolbar">
-                  <div class="memory-scope" id="memory-scope">
-                    <button class="memory-scope-btn active" type="button" data-scope="chat">本聊天</button>
-                    <button class="memory-scope-btn" type="button" data-scope="global">全局</button>
-                  </div>
-                  <select id="memory-owner" class="memory-input memory-owner" title="按成员筛选" disabled>
-                    <option value="">全部成员</option>
-                  </select>
-                  <input id="memory-q" class="memory-input" type="search" placeholder="搜索记忆…（回车搜索）" autocomplete="off">
-                  <button id="memory-search-btn" class="memory-btn" type="button">搜索</button>
-                  <button id="memory-refresh-btn" class="memory-btn" type="button">刷新</button>
-                </div>
-                <div id="memory-stats" class="memory-stats"></div>
-                <div id="memory-list" class="memory-list"><p class="empty-inline">加载中…</p></div>
-              </div>
-              <div class="conv-pane" data-pane="persona">
-                <div id="persona-list" class="persona-list"><p class="empty-inline">选择联系人后蒸馏画像</p></div>
-              </div>
-              <div class="conv-pane" data-pane="tools">
-                <div id="tools-config" class="tools-config"><p class="empty-inline">选择联系人后配置工具栏</p></div>
-              </div>
-              <div class="conv-pane" data-pane="logs">
-                <div id="conv-log-list" class="conv-log-list"><p class="empty-inline">选择联系人后查看输入/输出日志</p></div>
-                <button id="conv-log-more" class="flow-more" type="button" hidden>更早的日志</button>
-              </div>
-            </div>
-          </section>
-          <div class="group-stats" aria-label="群聊统计">
-            <span>观察 <b id="group-observed">0</b><small>OBSERVED</small></span>
-            <span>转发 <b id="group-forwarded">0</b><small>FORWARDED</small></span>
-            <span>回复 <b id="group-replied">0</b><small>REPLIED</small></span>
-            <span>拦截 <b id="group-blocked">0</b><small>BLOCKED</small></span>
-            <span>策略 <b id="group-policy-blocked">0</b><small>POLICY</small></span>
-            <span>限流 <b id="group-rate-limited">0</b><small>RATE LIMIT</small></span>
-            <span>熔断 <b id="group-fused">0</b><small>FUSED</small></span>
-          </div>
-        </div>
-      </section>
-    </section>
-
-    <!-- ══════════ 视图 4 · 设置-流量安全 LIMITS ══════════ -->
+    <!-- ══════════ 视图 2 · 管道遥测与安全底线 TELEMETRY & GUARD ══════════ -->
     <section class="view settings-view" data-view="settings-traffic">
+      <!-- 管道遥测关键指标卡片 -->
+      <div class="panel telemetry-stats-panel" style="margin-bottom: 20px; background: rgba(22, 27, 34, 0.7); backdrop-filter: blur(12px); border: 1px solid var(--feagle-border); border-radius: 12px; padding: 16px;">
+        <div class="panel-title" style="display: flex; justify-content: space-between; align-items: center;">
+          <div><strong style="color: var(--feagle-accent); font-size: 15px;">⚡ 管道实时吞吐指标</strong></div>
+          <small style="color: var(--feagle-muted); font-size: 12px;">OneBot v11 双向流转实时遥测</small>
+        </div>
+        <div class="group-stats" aria-label="管道统计" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 10px; margin-top: 14px;">
+          <span style="background: rgba(30, 41, 59, 0.6); padding: 10px 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05);">观察 <b id="group-observed" style="display: block; font-size: 18px; color: #38bdf8;">0</b><small style="font-size: 10px; color: var(--feagle-muted);">OBSERVED</small></span>
+          <span style="background: rgba(30, 41, 59, 0.6); padding: 10px 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05);">转发 <b id="group-forwarded" style="display: block; font-size: 18px; color: #22c55e;">0</b><small style="font-size: 10px; color: var(--feagle-muted);">FORWARDED</small></span>
+          <span style="background: rgba(30, 41, 59, 0.6); padding: 10px 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05);">回复 <b id="group-replied" style="display: block; font-size: 18px; color: #a855f7;">0</b><small style="font-size: 10px; color: var(--feagle-muted);">REPLIED</small></span>
+          <span style="background: rgba(30, 41, 59, 0.6); padding: 10px 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05);">拦截 <b id="group-blocked" style="display: block; font-size: 18px; color: #f59e0b;">0</b><small style="font-size: 10px; color: var(--feagle-muted);">BLOCKED</small></span>
+          <span style="background: rgba(30, 41, 59, 0.6); padding: 10px 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05);">策略 <b id="group-policy-blocked" style="display: block; font-size: 18px; color: #ec4899;">0</b><small style="font-size: 10px; color: var(--feagle-muted);">POLICY</small></span>
+          <span style="background: rgba(30, 41, 59, 0.6); padding: 10px 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05);">限流 <b id="group-rate-limited" style="display: block; font-size: 18px; color: #ef4444;">0</b><small style="font-size: 10px; color: var(--feagle-muted);">RATE LIMIT</small></span>
+          <span style="background: rgba(30, 41, 59, 0.6); padding: 10px 8px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.05);">熔断 <b id="group-fused" style="display: block; font-size: 18px; color: #64748b;">0</b><small style="font-size: 10px; color: var(--feagle-muted);">FUSED</small></span>
+        </div>
+      </div>
 
       <form id="limits-settings-form" class="settings-form">
         <section class="settings-section">
@@ -251,11 +196,10 @@
       </defs>
     </svg>
     <div class="glass-surface__content">
-      <a class="active" href="#/overview" data-view-link="overview"><span class="nav-cn">总览</span></a>
-      <a href="#/traffic" data-view-link="traffic"><span class="nav-cn">日志</span></a>
-      <a href="#/groups" data-view-link="groups"><span class="nav-cn">消息</span></a>
-      <a href="#/settings-traffic" data-view-link="settings-traffic"><span class="nav-cn">流量安全</span></a>
-      <a href="#/plugins" id="nav-plugins" data-view-link="plugins" hidden><span class="nav-cn">插件与配置</span></a>
+      <a class="active" href="#/overview" data-view-link="overview"><span class="nav-cn">📊 核心总览</span></a>
+      <a href="#/settings-traffic" data-view-link="settings-traffic"><span class="nav-cn">⚡ 管道遥测</span></a>
+      <a href="#/traffic" data-view-link="traffic"><span class="nav-cn">📟 终端日志</span></a>
+      <a href="#/plugins" id="nav-plugins" data-view-link="plugins" hidden><span class="nav-cn">🤖 AstrBot</span></a>
     </div>
   </nav>
 
