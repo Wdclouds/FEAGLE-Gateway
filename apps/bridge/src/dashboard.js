@@ -730,6 +730,8 @@ export class DashboardServer {
 
     // ---- GET /download (移动端优雅下载引导落地页) ----
     if (url.pathname === '/download' || url.pathname === '/downloads') {
+      const httpProto = request.headers['x-forwarded-proto'] || 'http';
+      const hostHeader = request.headers.host || `${this.host}:${this.port}`;
       const cdnUrl = 'https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
       const localUrl = '/api/device/download-agent';
 
