@@ -677,8 +677,8 @@ export class DashboardServer {
       const httpProto = request.headers['x-forwarded-proto'] || 'http';
       const hostHeader = request.headers.host || `${hostname}:${this.port}`;
       const downloadUrl = `${httpProto}://${hostHeader}/download`;
-      const lanzouUrl = 'https://wwbpz.lanzout.com/iKuDb4av89ib';
-      const lanzouPass = 'gmyj';
+      const lanzouUrl = 'https://wwbpz.lanzout.com/ilH614avcsvc';
+      const lanzouPass = '69gm';
 
       const payload = {
         endpoint,
@@ -736,8 +736,8 @@ export class DashboardServer {
     if (url.pathname === '/download' || url.pathname === '/downloads') {
       const httpProto = request.headers['x-forwarded-proto'] || 'http';
       const hostHeader = request.headers.host || `${this.host}:${this.port}`;
-      const lanzouUrl = 'https://wwbpz.lanzout.com/iKuDb4av89ib';
-      const lanzouPass = 'gmyj';
+      const lanzouUrl = 'https://wwbpz.lanzout.com/ilH614avcsvc';
+      const lanzouPass = '69gm';
       const cdnUrl = 'https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
       const localUrl = '/api/device/download-agent';
 

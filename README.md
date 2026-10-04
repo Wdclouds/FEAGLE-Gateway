@@ -113,7 +113,7 @@ npm start
 ### 2. 平板端驱动配对 (Android SM-X200)
 
 #### 📥 获取驱动 APK 安装包 (469 KB)
-* ⚡ **国内网盘高速通道（推荐，免翻墙）**：[蓝奏云下载直链](https://wwbpz.lanzout.com/iKuDb4av89ib)（提取码：`gmyj`）
+* ⚡ **国内网盘高速通道（推荐，免翻墙）**：[蓝奏云下载直链](https://wwbpz.lanzout.com/ilH614avcsvc)（提取码：`69gm`）
 * 🌐 **GitHub Releases 官方通道**：[v0.8.0 发布页](https://github.com/Wdclouds/FEAGLE-Gateway/releases/tag/v0.8.0) | [APK 原生直链](https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk)
 * 🚀 **国内 CDN 镜像加速通道**：[ghfast 加速直链](https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk)
 * 💻 **源码本地自编译**：运行 `.\feagle.cmd android build-agent` 即可在本地全自动编译最新驱动。
