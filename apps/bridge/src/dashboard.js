@@ -673,8 +673,8 @@ export class DashboardServer {
         ? `${proto}://${hostname}:${wsPort}${wsPath}?mode=pair`
         : `${proto}://${hostname}:${wsPort}${wsPath}`;
 
-      const httpProto = req.headers['x-forwarded-proto'] || 'http';
-      const hostHeader = req.headers.host || `${hostname}:${this.port}`;
+      const httpProto = request.headers['x-forwarded-proto'] || 'http';
+      const hostHeader = request.headers.host || `${hostname}:${this.port}`;
       const downloadUrl = `${httpProto}://${hostHeader}/downloads/feaglewxbot-agent.apk`;
 
       const payload = {
