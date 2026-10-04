@@ -41,6 +41,7 @@ const CONTENT_TYPES = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
   '.json': 'application/json; charset=utf-8',
+  '.apk': 'application/vnd.android.package-archive',
 };
 const WECHAT_ADMIN_MODES = new Set(['RUNNING', 'PAUSED', 'MANUAL_OFFLINE']);
 const GROUP_CHAT_MODES = new Set(['OFF', 'OBSERVE', 'MENTION_ONLY']);
@@ -731,7 +732,7 @@ export class DashboardServer {
     if (url.pathname === '/download' || url.pathname === '/downloads') {
       const httpProto = request.headers['x-forwarded-proto'] || 'http';
       const hostHeader = request.headers.host || `${this.host}:${this.port}`;
-      const apkUrl = `${httpProto}://${hostHeader}/downloads/feaglewxbot-agent.apk`;
+      const apkUrl = `${httpProto}://${hostHeader}/api/device/download-agent`;
 
       const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -763,7 +764,8 @@ export class DashboardServer {
     <div class="icon">📱</div>
     <h1>FEAGLE Driver v0.8.0</h1>
     <p class="sub">Android 微信 8.0.78 物理 Hook 驱动 (450 KB)</p>
-    <a id="dl-link" href="${apkUrl}" class="btn">📥 立即下载 APK</a>
+    <a id="dl-link" href="${apkUrl}" download="feaglewxbot-agent.apk" class="btn">📥 立即下载 APK</a>
+    <p style="margin-top: 14px; font-size: 13px;"><a href="${apkUrl}" download="feaglewxbot-agent.apk" style="color: #38bdf8; text-decoration: underline;">若未自动弹出，点此备用直链</a></p>
     <div class="tips">
       <b>📌 安装后续步骤：</b><br>
       1. 下载后直接在平板点击安装；<br>
@@ -777,7 +779,10 @@ export class DashboardServer {
     if (isWechat) {
       document.getElementById('wx-overlay').style.display = 'block';
     } else {
-      setTimeout(() => { window.location.href = '${apkUrl}'; }, 600);
+      setTimeout(() => {
+        const link = document.getElementById('dl-link');
+        if (link) link.click();
+      }, 500);
     }
   </script>
 </body>
@@ -1279,10 +1284,15 @@ export class DashboardServer {
       response.end('Not found');
       return;
     }
-    response.writeHead(200, {
+    const headers = {
       'Content-Type': CONTENT_TYPES[extname(path)] || 'application/octet-stream',
       'Cache-Control': 'no-cache',
-    });
+    };
+    if (extname(path) === '.apk') {
+      headers['Content-Disposition'] = 'attachment; filename="feaglewxbot-agent.apk"';
+      headers['Content-Type'] = 'application/vnd.android.package-archive';
+    }
+    response.writeHead(200, headers);
     createReadStream(path).pipe(response);
   }
 
