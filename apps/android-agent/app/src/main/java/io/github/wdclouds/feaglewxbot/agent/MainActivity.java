@@ -353,8 +353,7 @@ public class MainActivity extends Activity {
         Button qrBtn = createStyledButton("扫码配置", "btn_qr_scan", COLOR_SURFACE, false);
         qrBtn.setOnClickListener(v -> {
             try {
-                Intent intent = new Intent("com.google.zxing.client.android.SCAN");
-                intent.putExtra("SCAN_MODE", "QR_CODE_MODE");
+                Intent intent = new Intent(this, QrScanActivity.class);
                 startActivityForResult(intent, 300);
             } catch (Exception e) {
                 handleScanFailure();
@@ -915,7 +914,10 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 300 && resultCode == RESULT_OK && data != null) {
-            String scanResult = data.getStringExtra("SCAN_RESULT");
+            String scanResult = data.getStringExtra(QrScanActivity.EXTRA_QR_RESULT);
+            if (scanResult == null) {
+                scanResult = data.getStringExtra("SCAN_RESULT");
+            }
             if (scanResult != null && !scanResult.isEmpty()) {
                 if (!applyConfigString(scanResult)) {
                     Toast.makeText(this, "扫描内容格式不符: " + scanResult, Toast.LENGTH_SHORT).show();
