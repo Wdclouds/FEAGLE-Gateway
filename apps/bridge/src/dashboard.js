@@ -764,8 +764,12 @@ export class DashboardServer {
     <div class="icon">📱</div>
     <h1>FEAGLE Driver v0.8.0</h1>
     <p class="sub">Android 微信 8.0.78 物理 Hook 驱动 (450 KB)</p>
-    <a id="dl-link" href="${localUrl}" download="feagle-driver-v0.8.0.apk" class="btn">⚡ 阿里云直连下载 APK</a>
+    <a id="dl-link" href="${localUrl}" class="btn">⚡ 立即下载 APK 安装包</a>
     <a href="${cdnUrl}" class="btn-sub">🌐 境外备用 CDN 下载</a>
+    <div style="margin-top: 16px; padding: 10px; background: rgba(15, 23, 42, 0.6); border-radius: 8px; font-size: 11px; color: #94a3b8; word-break: break-all; text-align: left;">
+      <div style="margin-bottom: 4px; color: #cbd5e1; font-weight: 600;">备用手动直链 (可复制到地址栏回车):</div>
+      <span id="raw-url">${httpProto}://${hostHeader}${localUrl}</span>
+    </div>
     <div class="tips">
       <b>📌 安装后续步骤：</b><br>
       1. 下载完成后在平板上点击安装；<br>
@@ -778,11 +782,6 @@ export class DashboardServer {
     const isWechat = /MicroMessenger/i.test(navigator.userAgent);
     if (isWechat) {
       document.getElementById('wx-overlay').style.display = 'block';
-    } else {
-      setTimeout(() => {
-        const link = document.getElementById('dl-link');
-        if (link) link.click();
-      }, 500);
     }
   </script>
 </body>
