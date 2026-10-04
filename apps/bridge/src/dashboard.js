@@ -731,8 +731,7 @@ export class DashboardServer {
     // ---- GET /download (移动端优雅下载引导落地页) ----
     if (url.pathname === '/download' || url.pathname === '/downloads') {
       const cdnUrl = 'https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
-      const githubUrl = 'https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
-      const localUrl = '/api/device/download-agent?local=1';
+      const localUrl = '/api/device/download-agent';
 
       const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -765,8 +764,8 @@ export class DashboardServer {
     <div class="icon">📱</div>
     <h1>FEAGLE Driver v0.8.0</h1>
     <p class="sub">Android 微信 8.0.78 物理 Hook 驱动 (450 KB)</p>
-    <a id="dl-link" href="${cdnUrl}" class="btn">⚡ HTTPS 高速下载 APK</a>
-    <a href="${githubUrl}" class="btn-sub">🌐 GitHub 原生镜像下载</a>
+    <a id="dl-link" href="${localUrl}" download="feagle-driver-v0.8.0.apk" class="btn">⚡ 阿里云直连下载 APK</a>
+    <a href="${cdnUrl}" class="btn-sub">🌐 境外备用 CDN 下载</a>
     <div class="tips">
       <b>📌 安装后续步骤：</b><br>
       1. 下载完成后在平板上点击安装；<br>
@@ -797,20 +796,8 @@ export class DashboardServer {
       return;
     }
 
-    // ---- GET /api/device/download-agent (APK 分发下载，支持 302 CDN 重定向与本地回退) ----
+    // ---- GET /api/device/download-agent (APK 原生分发下载，国内 ECS 直连极速吐包) ----
     if (url.pathname === '/api/device/download-agent') {
-      const cdnUrl = 'https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
-      const useLocal = url.searchParams.get('local') === '1';
-
-      if (!useLocal) {
-        response.writeHead(302, {
-          Location: cdnUrl,
-          'Cache-Control': 'no-store',
-        });
-        response.end();
-        return;
-      }
-
       const fs = await import('node:fs/promises');
       const path = await import('node:path');
       const candidatePaths = [
@@ -830,7 +817,7 @@ export class DashboardServer {
       if (apkBuffer) {
         response.writeHead(200, {
           'Content-Type': 'application/vnd.android.package-archive',
-          'Content-Disposition': 'attachment; filename="feaglewxbot-agent.apk"',
+          'Content-Disposition': 'attachment; filename="feagle-driver-v0.8.0.apk"',
           'Content-Length': apkBuffer.length,
           'Cache-Control': 'no-store',
         });
