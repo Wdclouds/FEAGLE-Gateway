@@ -287,7 +287,7 @@ export class AndroidWechatClient {
           done(true);
           return;
         }
-        const supplied = bearerToken(req.headers.authorization);
+        const supplied = bearerToken(req.headers.authorization) || url.searchParams.get('token');
         console.log('[Android WS verify]', {
           url: req.url,
           supplied: supplied ? supplied.slice(0, 8) + '...' : null,
