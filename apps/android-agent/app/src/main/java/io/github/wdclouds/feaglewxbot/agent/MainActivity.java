@@ -843,11 +843,7 @@ public class MainActivity extends Activity {
         editor.apply();
         Toast.makeText(this, "配置已保存，正在发起重连", Toast.LENGTH_SHORT).show();
         LogCollector.log("CONFIG", "保存新网关地址: " + endpoint + (token != null && !token.trim().isEmpty() ? " (含Token)" : ""));
-        if (isBridgeServiceRunning()) {
-            sendBroadcast(new Intent("io.github.wdclouds.feaglewxbot.agent.ACTION_RECONNECT").setPackage(getPackageName()));
-        } else {
-            startAgent();
-        }
+        startAgent();
         updateOverviewState();
     }
 
