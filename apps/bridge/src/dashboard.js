@@ -730,9 +730,9 @@ export class DashboardServer {
 
     // ---- GET /download (移动端优雅下载引导落地页) ----
     if (url.pathname === '/download' || url.pathname === '/downloads') {
-      const httpProto = request.headers['x-forwarded-proto'] || 'http';
-      const hostHeader = request.headers.host || `${this.host}:${this.port}`;
-      const apkUrl = `${httpProto}://${hostHeader}/api/device/download-agent`;
+      const cdnUrl = 'https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
+      const githubUrl = 'https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
+      const localUrl = '/api/device/download-agent?local=1';
 
       const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -749,6 +749,7 @@ export class DashboardServer {
     p.sub { font-size: 13px; color: #94a3b8; margin-bottom: 24px; }
     .btn { display: block; width: 100%; padding: 14px 20px; background: #0284c7; color: #fff; text-decoration: none; border-radius: 12px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4); transition: all 0.2s; }
     .btn:active { transform: scale(0.98); background: #0369a1; }
+    .btn-sub { display: block; width: 100%; margin-top: 10px; padding: 10px 16px; background: rgba(51, 65, 85, 0.6); color: #cbd5e1; text-decoration: none; border-radius: 10px; font-size: 13px; }
     .tips { margin-top: 24px; padding: 14px; background: rgba(51, 65, 85, 0.5); border-radius: 10px; font-size: 12px; color: #cbd5e1; text-align: left; line-height: 1.6; }
     #wx-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.85); z-index: 999; padding: 20px; text-align: right; }
     .wx-arrow { font-size: 32px; color: #38bdf8; margin-right: 12px; font-weight: bold; }
@@ -764,11 +765,11 @@ export class DashboardServer {
     <div class="icon">📱</div>
     <h1>FEAGLE Driver v0.8.0</h1>
     <p class="sub">Android 微信 8.0.78 物理 Hook 驱动 (450 KB)</p>
-    <a id="dl-link" href="${apkUrl}" download="feaglewxbot-agent.apk" class="btn">📥 立即下载 APK</a>
-    <p style="margin-top: 14px; font-size: 13px;"><a href="${apkUrl}" download="feaglewxbot-agent.apk" style="color: #38bdf8; text-decoration: underline;">若未自动弹出，点此备用直链</a></p>
+    <a id="dl-link" href="${cdnUrl}" class="btn">⚡ HTTPS 高速下载 APK</a>
+    <a href="${githubUrl}" class="btn-sub">🌐 GitHub 原生镜像下载</a>
     <div class="tips">
       <b>📌 安装后续步骤：</b><br>
-      1. 下载后直接在平板点击安装；<br>
+      1. 下载完成后在平板上点击安装；<br>
       2. 打开 <b>LSPosed</b> 模块管理器并勾选 <b>微信</b>；<br>
       3. 强制停止微信并重新打开微信生效；<br>
       4. 回到电脑屏幕切换至第二步扫码配对。
@@ -796,8 +797,20 @@ export class DashboardServer {
       return;
     }
 
-    // ---- GET /api/device/download-agent (APK 分发下载) ----
+    // ---- GET /api/device/download-agent (APK 分发下载，支持 302 CDN 重定向与本地回退) ----
     if (url.pathname === '/api/device/download-agent') {
+      const cdnUrl = 'https://ghfast.top/https://github.com/Wdclouds/FEAGLE-Gateway/releases/download/v0.8.0/feagle-driver-v0.8.0.apk';
+      const useLocal = url.searchParams.get('local') === '1';
+
+      if (!useLocal) {
+        response.writeHead(302, {
+          Location: cdnUrl,
+          'Cache-Control': 'no-store',
+        });
+        response.end();
+        return;
+      }
+
       const fs = await import('node:fs/promises');
       const path = await import('node:path');
       const candidatePaths = [
