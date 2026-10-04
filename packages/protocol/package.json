@@ -1,6 +1,6 @@
 {
   "name": "@feagle/protocol",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Shared OneBot v11 and FEAGLE Android Bridge Protocol contracts and TypeScript interfaces",
   "type": "module",
   "main": "./index.d.ts",
