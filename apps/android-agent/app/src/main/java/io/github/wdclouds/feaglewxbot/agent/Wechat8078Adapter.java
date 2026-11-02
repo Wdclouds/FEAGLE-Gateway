@@ -305,7 +305,27 @@ final class Wechat8078Adapter {
 
     static void sendText(ClassLoader classLoader, String talker, String content)
             throws Throwable {
-        // 尝试 8.0.79 的最新发信入口 wh0.c.a(...)
+        // 8.0.79 底层真实 NetSceneSendMsg 压网队列（免 UI Activity / LifecycleScope 依赖，后台锁屏必达）
+        try {
+            Class<?> netSceneClass79 = XposedHelpers.findClass("com.tencent.mm.plugin.voip.model.y", classLoader);
+            Class<?> i1Class79 = XposedHelpers.findClass("pp0.i1", classLoader);
+            if (netSceneClass79 != null && i1Class79 != null) {
+                java.lang.reflect.Constructor<?> ctor = netSceneClass79.getDeclaredConstructor(
+                        String.class, String.class, int.class, int.class);
+                ctor.setAccessible(true);
+                Object netScene = ctor.newInstance(talker, content, 1, 0);
+                Object queue = XposedHelpers.callStaticMethod(i1Class79, "e");
+                if (queue != null) {
+                    Object res = XposedHelpers.callMethod(queue, "g", netScene);
+                    XposedBridge.log("FEAGLE-Hook: 8.0.79 NetSceneSendMsg enqueued=" + res + " to " + talker);
+                    return;
+                }
+            }
+        } catch (Throwable t) {
+            XposedBridge.log("FEAGLE-Hook: 8.0.79 NetSceneSendMsg fallback: " + t.getMessage());
+        }
+
+        // 尝试 8.0.79 的门面入口 wh0.c.a(...)
         try {
             Class<?> sendLogic79 = XposedHelpers.findClass("wh0.c", classLoader);
             if (sendLogic79 != null) {
