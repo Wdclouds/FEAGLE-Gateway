@@ -3,6 +3,7 @@ import { DashboardServer } from './dashboard.js';
 import { IdMap } from './id-map.js';
 import { AndroidWechatClient } from './android-client.js';
 import { OneBotClient } from './onebot-client.js';
+import { GatewayClient } from './gateway-client.js';
 import {
   PersistentControlState,
   WECHAT_ADMIN_MODES,
@@ -65,6 +66,7 @@ state.patch('groupChat', {
 const messageGuard = null;
 
 let onebot;
+let gateway;
 const transport = settings.transport;
 state.patch('transport', {
   active: transport,
@@ -93,11 +95,11 @@ const commonWechatOptions = {
   isSleeping: () => false,
   messageGuard: null,
   initialAdminMode: savedControl.wechatAdminMode,
-  onPrivateText: async (message) => onebot.sendPrivateText(message),
-  onGroupText: async (message) => onebot.sendGroupText(message),
-  onPrivateImage: async (message) => onebot.sendPrivateImage(message),
-  onGroupImage: async (message) => onebot.sendGroupImage(message),
-  onNotice: async (event) => onebot.sendNotice(event),
+  onPrivateText: async (message) => gateway.sendPrivateText(message),
+  onGroupText: async (message) => gateway.sendGroupText(message),
+  onPrivateImage: async (message) => gateway.sendPrivateImage(message),
+  onGroupImage: async (message) => gateway.sendGroupImage(message),
+  onNotice: async (event) => gateway.sendNotice(event),
   onSelfAvatar: async (message) => {
     try {
       controlStore.saveSelfAvatar(message);
@@ -158,6 +160,9 @@ onebot = new OneBotClient({
   maxInFlightPerUser: settings.maxInFlightPerUser,
 });
 
+// pi-wx-gateway：极简扁平协议客户端（入站 POST 6185，出站监听 6192）
+gateway = new GatewayClient({ state, idMap, wechat });
+
 // quiet-hours schedule decoupled
 
 function getLanIps() {
@@ -178,7 +183,8 @@ async function main() {
   // host mode：AstrBot 由外部管理（hermes-wxbridge.service 不监督 AstrBot），
   // 仅保留 supervisor 实例用于 /api/status 状态展示，不 bootstrap/spawn。
   await wechat.start();
-  onebot.start();
+  gateway.start();
+  // onebot 保持不启动（AstrBot 已退役；WebSocket 服务端不再监听）
 
   const lanIps = getLanIps();
   const dashPort = process.env.BOT_DASHBOARD_PORT || 6190;
@@ -196,7 +202,8 @@ function shutdown(signal, exitCode = 0) {
   process.exitCode = exitCode;
   console.log(`[Runtime] received ${signal}, shutting down`);
   
-  onebot.stop();
+  onebot?.stop();
+  gateway?.stop();
   wechat.shutdown();
   dashboard.stop();
   idMap.close();

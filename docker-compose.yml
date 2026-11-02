@@ -15,6 +15,12 @@ services:
       - ./.env
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      HTTP_PROXY: http://172.20.0.1:7890
+      HTTPS_PROXY: http://172.20.0.1:7890
+      http_proxy: http://172.20.0.1:7890
+      https_proxy: http://172.20.0.1:7890
+      NO_PROXY: localhost,127.0.0.1,172.20.0.0/16
+      no_proxy: localhost,127.0.0.1,172.20.0.0/16
       BOT_BACKEND: ${BOT_BACKEND:-hermes}
       NODE_ENV: production
     volumes:
@@ -47,10 +53,17 @@ services:
       - astrbot
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      HTTP_PROXY: http://172.20.0.1:7890
+      HTTPS_PROXY: http://172.20.0.1:7890
+      http_proxy: http://172.20.0.1:7890
+      https_proxy: http://172.20.0.1:7890
+      NO_PROXY: localhost,127.0.0.1,172.20.0.0/16
+      no_proxy: localhost,127.0.0.1,172.20.0.0/16
     volumes:
       - ./data/astrbot:/AstrBot/data
     ports:
-      - "127.0.0.1:${ASTRBOT_WEBUI_HOST_PORT:-6185}:6185"
+      - "${ASTRBOT_WEBUI_HOST_PORT:-6185}:6185"
+      - "127.0.0.1:6199:6199"
     networks:
       - feagle_net
     stop_grace_period: 15s
@@ -70,6 +83,12 @@ services:
       POSTGRES_PASSWORD: ${MNEMOSYNE_DB_PASSWORD:-hermes_secure_password_2026}
       POSTGRES_DB: ${MNEMOSYNE_DB_NAME:-mnemosyne}
       TZ: ${TZ:-Asia/Shanghai}
+      HTTP_PROXY: http://172.20.0.1:7890
+      HTTPS_PROXY: http://172.20.0.1:7890
+      http_proxy: http://172.20.0.1:7890
+      https_proxy: http://172.20.0.1:7890
+      NO_PROXY: localhost,127.0.0.1,172.20.0.0/16
+      no_proxy: localhost,127.0.0.1,172.20.0.0/16
     volumes:
       - ./data/mnemosyne-db:/var/lib/postgresql/data
     ports:
