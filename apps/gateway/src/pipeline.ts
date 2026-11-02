@@ -352,6 +352,39 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
     return;
   }
 
+  // ⚡ 小红书智能自然语言直达：无需输命令，直接 "@Nox 小红书搜xxx / 搜小红书xxx / 小红书: xxx"
+  const xhsMatch = pkt.t.match(/^(?:(?:\/xhs|(?:小红书|xhs)(?:\s*搜|\s*查|:|\uFF1A|\s+)|(?:搜|查)小红书(?:\s+|:|\uFF1A)?))\s*(.+)$/i);
+  if (xhsMatch && (!group || pkt.at)) {
+    const keyword = xhsMatch[1].trim();
+    if (keyword) {
+      await sendToBridge(quickBatch(pkt.c, `🔍 正在调动平板小红书检索【${keyword}】，请稍候...`, group ? pkt.u : undefined));
+      try {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 20000);
+        const res = await fetch('http://127.0.0.1:6192/gw/xhs/search', {
+          method: 'POST',
+          signal: ctl.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: keyword }),
+        });
+        clearTimeout(timer);
+        const data = await res.json() as any;
+        const result = data.result || {};
+        const notes = Array.isArray(result.notes) ? result.notes : [];
+        if (!notes.length) {
+          await sendToBridge(quickBatch(pkt.c, `📕 【小红书检索 · ${keyword}】\n未检索到相关有效笔记，建议换个关键词试试～`, group ? pkt.u : undefined));
+          return;
+        }
+        const bulletList = notes.slice(0, 5).map((n: string, i: number) => `${i + 1}. ${n}`).join('\n\n');
+        await sendToBridge(quickBatch(pkt.c, `📕 【小红书实测提炼 · ${keyword}】\n\n${bulletList}\n\n💡 提示：以上内容由端侧平板原生通道无痕提取。`, group ? pkt.u : undefined));
+        return;
+      } catch (e: any) {
+        await sendToBridge(quickBatch(pkt.c, `❌ 小红书检索暂不可用: ${e.message}`, group ? pkt.u : undefined));
+        return;
+      }
+    }
+  }
+
   // 🛡️ 屏蔽机制：防止提示词投毒 / 越狱攻击注入拦截 (硬规则，0 成本)
   if (!systemCron) {
     const toxicCheck = isPromptInjectionOrToxic(pkt.t);
