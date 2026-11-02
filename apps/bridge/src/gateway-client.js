@@ -104,8 +104,14 @@ export class GatewayClient {
           }
           this.state.increment('replied');
         } else if (item.img) {
-          // 当前 AndroidWechatClient 暂无出站图片 API，跳过并记录
-          console.warn(`[Gateway] 出站图片暂不支持，跳过: ${item.img}`);
+          if (String(batch.c).endsWith('@chatroom')) {
+            const groupId = this.forwardEntity(batch.c, 'group');
+            await this.wechat.sendGroupImage(groupId, item.img);
+          } else {
+            const userId = this.forwardEntity(batch.c, 'user');
+            await this.wechat.sendImage(userId, item.img);
+          }
+          this.state.increment('replied');
         }
       } catch (error) {
         console.error(`[Gateway] 单条发送失败(${batch.c}): ${error.message}`);

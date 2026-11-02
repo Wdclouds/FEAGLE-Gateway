@@ -1274,6 +1274,56 @@ export class AndroidWechatClient {
     return commandId;
   }
 
+  async sendImage(onebotUserId, imagePath) {
+    if (!this.loggedIn || this.socket?.readyState !== WebSocket.OPEN) {
+      throw new Error('Android WeChat Agent is not connected');
+    }
+    const talker = this.idMap.protocolId(onebotUserId, 'user');
+    if (!talker) throw new Error(`未找到 OneBot 用户映射: ${onebotUserId}`);
+    const commandId = await this.sendAgentImage('private', talker, imagePath);
+    return { MsgID: commandId };
+  }
+
+  async sendGroupImage(onebotGroupId, imagePath) {
+    if (!this.loggedIn || this.socket?.readyState !== WebSocket.OPEN) {
+      throw new Error('Android WeChat Agent is not connected');
+    }
+    const talker = this.idMap.protocolId(onebotGroupId, 'group');
+    if (!talker) throw new Error(`未找到 OneBot 群映射: ${onebotGroupId}`);
+    const commandId = await this.sendAgentImage('group', talker, imagePath);
+    return { MsgID: commandId };
+  }
+
+  async sendAgentImage(chatType, talker, imagePath) {
+    const commandId = randomUUID();
+    const response = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingCommands.delete(commandId);
+        this.state.patch('android', { pendingCommands: this.pendingCommands.size });
+        reject(new Error('Android send_image command timed out'));
+      }, this.commandTimeoutMs);
+      timer.unref();
+      this.pendingCommands.set(commandId, { resolve, reject, timer });
+      this.state.patch('android', { pendingCommands: this.pendingCommands.size });
+    });
+    const sent = this.send(this.socket, {
+      type: 'send_image',
+      commandId,
+      chatType,
+      talker,
+      imagePath,
+    });
+    if (!sent) {
+      const pending = this.pendingCommands.get(commandId);
+      clearTimeout(pending?.timer);
+      this.pendingCommands.delete(commandId);
+      this.state.patch('android', { pendingCommands: this.pendingCommands.size });
+      throw new Error('Android Agent disconnected before send_image was sent');
+    }
+    await response;
+    return commandId;
+  }
+
   async searchXhs(query) {
     if (!this.socket || this.socket.readyState !== 1) {
       throw new Error('Android Agent is not connected');
