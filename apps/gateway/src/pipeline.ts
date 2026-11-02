@@ -352,12 +352,24 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
     return;
   }
 
-  // ⚡ 小红书智能自然语言直达：无需输命令，直接 "@Nox 小红书搜xxx / 搜小红书xxx / 小红书: xxx"
-  const xhsMatch = pkt.t.match(/^(?:(?:\/xhs|(?:小红书|xhs)(?:\s*搜|\s*查|:|\uFF1A|\s+)|(?:搜|查)小红书(?:\s+|:|\uFF1A)?))\s*(.+)$/i);
-  if (xhsMatch && (!group || pkt.at)) {
-    const keyword = xhsMatch[1].trim();
-    if (keyword) {
-      await sendToBridge(quickBatch(pkt.c, `🔍 正在调动平板小红书检索【${keyword}】，请稍候...`, group ? pkt.u : undefined));
+  // ⚡ 小红书智能自然语言直达：彻底清洗群聊 @、前后缀口语词
+  const rawClean = pkt.t.replace(/^@\S+[\s\u2005\u00a0]*/, '').trim();
+  let xhsKeyword: string | null = null;
+
+  const mCmd = rawClean.match(/^\/xhs\s+(.+)$/i);
+  if (mCmd) {
+    xhsKeyword = mCmd[1].trim();
+  } else if (/小红书|xhs/i.test(rawClean)) {
+    const p1 = rawClean.match(/^(?:帮我|请|麻烦|快|给|去|在|到|\s)*(?:小红书|xhs)\s*(?:上)?\s*(?:搜搜|搜一下|搜一搜|搜索|搜|查查|查一下|查找|查|看下|看看|看|找找|找一下|找|翻翻|翻一下)?\s*(?:一下|下)?\s*[,，:：\s]*(.+)$/i);
+    const p2 = rawClean.match(/^(?:帮我|请|麻烦|快|给|去|在|到|\s)*(?:搜搜|搜一下|搜一搜|搜索|搜|查查|查一下|查找|查|看下|看看|看|找找|找一下|找)\s*(?:一下|下)?\s*(?:小红书|xhs)\s*(?:上)?\s*[,，:：\s]*(.+)$/i);
+    const pFallback = rawClean.match(/(?:小红书|xhs)\s*(?:上)?\s*(?:搜搜|搜一下|搜一搜|搜索|搜|查查|查一下|查找|查|看下|看看|看|找找|找一下|找|翻翻|翻一下)?\s*(?:一下|下)?\s*[,，:：\s]*(.+)$/i);
+    xhsKeyword = p1?.[1]?.trim() || p2?.[1]?.trim() || pFallback?.[1]?.trim() || null;
+  }
+
+  if (xhsKeyword && (!group || pkt.at)) {
+    xhsKeyword = xhsKeyword.replace(/^[，,。？?！!：:\s]+|[，,。？?！!：:\s]+$/g, '');
+    if (xhsKeyword.length >= 2) {
+      await sendToBridge(quickBatch(pkt.c, `🔍 正在调动平板小红书实时翻找【${xhsKeyword}】，请稍候...`, group ? pkt.u : undefined));
       try {
         const ctl = new AbortController();
         const timer = setTimeout(() => ctl.abort(), 20000);
@@ -365,18 +377,27 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
           method: 'POST',
           signal: ctl.signal,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: keyword }),
+          body: JSON.stringify({ query: xhsKeyword }),
         });
         clearTimeout(timer);
         const data = await res.json() as any;
         const result = data.result || {};
         const notes = Array.isArray(result.notes) ? result.notes : [];
         if (!notes.length) {
-          await sendToBridge(quickBatch(pkt.c, `📕 【小红书检索 · ${keyword}】\n未检索到相关有效笔记，建议换个关键词试试～`, group ? pkt.u : undefined));
+          await sendToBridge(quickBatch(pkt.c, `📕 【小红书检索 · ${xhsKeyword}】\n未检索到相关有效笔记，建议换个关键词试试～`, group ? pkt.u : undefined));
           return;
         }
-        const bulletList = notes.slice(0, 5).map((n: string, i: number) => `${i + 1}. ${n}`).join('\n\n');
-        await sendToBridge(quickBatch(pkt.c, `📕 【小红书实测提炼 · ${keyword}】\n\n${bulletList}\n\n💡 提示：以上内容由端侧平板原生通道无痕提取。`, group ? pkt.u : undefined));
+
+        const rawNotes = notes.slice(0, 6).join('\n---\n');
+        let finalReply = '';
+        try {
+          const summaryPrompt = `用户正在询问关于【${xhsKeyword}】的信息。以下是通过端侧设备从小红书实时检索抓取到的真实笔记核心内容：\n${rawNotes}\n\n请以群助手 Nox 的身份，结合这些最新真实笔记，为群友输出一段干货满满、重点突出的总结：\n1. 明确说明这是“刚从小红书实时翻出来的新鲜笔记”；\n2. 提取出大家最关心的几个避坑/经验重点（带出笔记里提到的真实细节，不要空泛）；\n3. 口吻自然亲切、灵动、排版清晰，避免机械式罗列。`;
+          finalReply = await directChat(summaryPrompt, '你是微信群聊智能助手 Nox。语言简炼生动、干货满满。');
+        } catch {
+          finalReply = `📕 【小红书实测提炼 · ${xhsKeyword}】\n\n` + notes.slice(0, 5).map((n: string, i: number) => `${i + 1}. ${n}`).join('\n\n');
+        }
+
+        await sendToBridge(quickBatch(pkt.c, finalReply, group ? pkt.u : undefined));
         return;
       } catch (e: any) {
         await sendToBridge(quickBatch(pkt.c, `❌ 小红书检索暂不可用: ${e.message}`, group ? pkt.u : undefined));
