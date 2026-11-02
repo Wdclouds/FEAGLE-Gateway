@@ -21,5 +21,5 @@ test('extracts text from OneBot message segments', () => {
     { type: 'text', data: { text: 'hello ' } },
     { type: 'image', data: { file: 'ignored' } },
     { type: 'text', data: { text: 'world' } },
-  ]), 'hello world');
+  ]), 'hello [图片] world');
 });

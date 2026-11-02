@@ -79,18 +79,19 @@ public final class WechatHook implements IXposedHookLoadPackage {
                         hookMessenger = new Messenger(new HookHandler());
                         String installedVersion = installedWechatVersion();
                         boolean isSupported = Wechat8070Adapter.TARGET_VERSION.equals(installedVersion)
-                                || "8.0.78".equals(installedVersion);
+                                || "8.0.78".equals(installedVersion)
+                                || "8.0.79".equals(installedVersion);
                         if (!isSupported) {
                             log("inactive: expected WeChat "
                                     + Wechat8070Adapter.TARGET_VERSION
-                                    + " or 8.0.78 but found " + installedVersion);
+                                    + ", 8.0.78 or 8.0.79 but found " + installedVersion);
                             return;
                         }
                         bindAgent();
                         try {
-                            if ("8.0.78".equals(installedVersion)) {
+                            if ("8.0.78".equals(installedVersion) || "8.0.79".equals(installedVersion)) {
                                 Wechat8078Adapter.installInbound(wechatClassLoader);
-                                log("8.0.78 inbound adapter installed");
+                                log(installedVersion + " inbound adapter installed");
                             } else {
                                 Wechat8070Adapter.installInbound(wechatClassLoader);
                                 log("8.0.70 inbound adapter installed");
@@ -132,7 +133,7 @@ public final class WechatHook implements IXposedHookLoadPackage {
             if (parsed == null) {
                 return;
             }
-            String groupName = "8.0.78".equals(installedWechatVersion())
+            String groupName = ("8.0.78".equals(installedWechatVersion()) || "8.0.79".equals(installedWechatVersion()))
                     ? Wechat8078Adapter.groupNameFor(talker)
                     : Wechat8070Adapter.groupNameFor(talker);
             sendCapturedText(
@@ -617,7 +618,7 @@ public final class WechatHook implements IXposedHookLoadPackage {
     private static void sendWechatText(String commandId, String talker, String content) {
         mainHandler.post(() -> {
             try {
-                if ("8.0.78".equals(installedWechatVersion())) {
+                if ("8.0.78".equals(installedWechatVersion()) || "8.0.79".equals(installedWechatVersion())) {
                     Wechat8078Adapter.sendText(wechatClassLoader, talker, content);
                 } else {
                     Wechat8070Adapter.sendText(wechatClassLoader, talker, content);

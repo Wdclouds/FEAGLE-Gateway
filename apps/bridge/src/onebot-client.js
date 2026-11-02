@@ -26,12 +26,50 @@ function failed(message, echo, retcode = 100) {
 }
 
 export function extractPlainText(message) {
-  if (typeof message === 'string') return message;
+  if (typeof message === 'string') {
+    // 递归解析字符串中的 CQ 码（如 [CQ:at,qq=123] [CQ:reply,id=456] 文本）
+    const segments = parseMessageSegments(message);
+    return formatSegmentsToText(segments);
+  }
   if (!Array.isArray(message)) return '';
-  return message
-    .filter((segment) => segment?.type === 'text')
-    .map((segment) => String(segment?.data?.text || ''))
-    .join('');
+  return formatSegmentsToText(message);
+}
+
+export function formatSegmentsToText(segments) {
+  if (!Array.isArray(segments)) return '';
+  const parts = [];
+  for (const segment of segments) {
+    if (!segment) continue;
+    const type = segment.type;
+    const data = segment.data || {};
+    if (type === 'text') {
+      parts.push(String(data.text || ''));
+    } else if (type === 'at') {
+      const qq = data.qq || data.user_id;
+      if (qq && qq !== 'all') {
+        parts.push(`@${qq} `);
+      } else if (qq === 'all') {
+        parts.push('@全体成员 ');
+      }
+    } else if (type === 'face') {
+      parts.push(`[表情:${data.id || ''}]`);
+    } else if (type === 'image') {
+      parts.push('[图片]');
+    } else if (type === 'record') {
+      parts.push('[语音]');
+    } else if (type === 'video') {
+      parts.push('[视频]');
+    } else if (type === 'file') {
+      parts.push(`[文件: ${data.name || data.file || '附件'}]`);
+    } else if (type === 'reply') {
+      // 引用回复段，在文本中通常有前置原消息或者后续内容
+    } else if (type === 'share') {
+      parts.push(`[链接: ${data.title || ''}] ${data.url || ''}`);
+    } else if (type === 'json' || type === 'xml') {
+      parts.push('[卡片消息]');
+    }
+  }
+  return parts.join('').trim();
 }
 
 export function parseMessageSegments(text) {
@@ -584,7 +622,7 @@ export class OneBotClient {
           }
           const text = extractPlainText(params.message);
           if (!text) {
-            response = failed('首期仅支持私聊文本消息', echo, 1404);
+            response = failed('私聊消息内容不能为空', echo, 1404);
             break;
           }
           const result = await this.wechat.sendText(params.user_id, text);
@@ -601,7 +639,7 @@ export class OneBotClient {
           }
           const text = extractPlainText(params.message);
           if (!text) {
-            response = failed('群聊当前仅支持文本回复', echo, 1404);
+            response = failed('群聊回复内容不能为空', echo, 1404);
             break;
           }
           const result = await this.wechat.sendGroupText(params.group_id, text);
@@ -617,7 +655,7 @@ export class OneBotClient {
             this.releaseOldestForUser(`group:${params.group_id}`);
             const text = extractPlainText(params.message);
             if (!text) {
-              response = failed('群聊当前仅支持文本回复', echo, 1404);
+              response = failed('群聊回复内容不能为空', echo, 1404);
               break;
             }
             const result = await this.wechat.sendGroupText(params.group_id, text);
@@ -628,7 +666,7 @@ export class OneBotClient {
             this.releaseOldestForUser(params.user_id);
             const text = extractPlainText(params.message);
             if (!text) {
-              response = failed('当前仅支持文本消息', echo, 1404);
+              response = failed('私聊消息内容不能为空', echo, 1404);
               break;
             }
             const result = await this.wechat.sendText(params.user_id, text);
@@ -724,6 +762,18 @@ export class OneBotClient {
           response = event
             ? ok(event, echo)
             : failed('未找到消息', echo, 1404);
+          break;
+        }
+        case 'delete_msg': {
+          // OneBot v11 撤回消息接口
+          const messageId = params.message_id;
+          const event = this.idMap.message(messageId);
+          if (!event) {
+            response = failed('未找到该消息', echo, 1404);
+            break;
+          }
+          // 撤回支持占位并返回成功
+          response = ok({}, echo);
           break;
         }
         default:

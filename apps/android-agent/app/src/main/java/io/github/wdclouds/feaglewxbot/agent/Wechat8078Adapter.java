@@ -21,11 +21,13 @@ final class Wechat8078Adapter {
 
     private static final String MESSAGE_CLASS = "com.tencent.mm.storage.e9";
     private static final String ADD_MSG_CLASS = "com.tencent.mm.modelbase.p0";
-    private static final String INSERT_HELPER_CLASS = "b41.aa";
-    private static final String STORAGE_DISPATCHER_CLASS = "b41.ba";
+    private static final String[] INSERT_HELPER_CLASSES =
+            new String[]{"l41.aa", "b41.aa"};
+    private static final String[] STORAGE_DISPATCHER_CLASSES =
+            new String[]{"l41.ba", "b41.ba"};
     private static final String MESSAGE_STORAGE_CLASS = "com.tencent.mm.storage.f9";
     private static final String[] STORAGE_INSERT_METHODS =
-            new String[]{"U8", "W8", "na", "ta"};
+            new String[]{"U8", "W8", "na", "ta", "Mb", "Nb", "Sb", "Tb", "pa", "Hc", "o"};
     private static final String SEND_FACTORY_CLASS = "hz0.r1";
 
     private Wechat8078Adapter() {
@@ -35,35 +37,39 @@ final class Wechat8078Adapter {
         Class<?> messageClass = XposedHelpers.findClass(MESSAGE_CLASS, classLoader);
         Class<?> addMsgClass = XposedHelpers.findClass(ADD_MSG_CLASS, classLoader);
         int installed = 0;
-        installed += hookTwoArgMessagePath(
-                classLoader,
-                INSERT_HELPER_CLASS,
-                "n",
-                messageClass,
-                addMsgClass,
-                "storage-helper");
+        for (String helperClass : INSERT_HELPER_CLASSES) {
+            installed += hookTwoArgMessagePath(
+                    classLoader,
+                    helperClass,
+                    new String[]{"o", "n"},
+                    messageClass,
+                    addMsgClass,
+                    "storage-helper");
+        }
         installed += hookAdditionalStoragePaths(classLoader, messageClass);
-        installed += hookTwoArgMessagePath(
-                classLoader,
-                STORAGE_DISPATCHER_CLASS,
-                "n",
-                messageClass,
-                addMsgClass,
-                "storage-dispatcher");
+        for (String dispatcherClass : STORAGE_DISPATCHER_CLASSES) {
+            installed += hookTwoArgMessagePath(
+                    classLoader,
+                    dispatcherClass,
+                    new String[]{"n", "o"},
+                    messageClass,
+                    addMsgClass,
+                    "storage-dispatcher");
+        }
         installed += hookLegacyStoragePaths(classLoader, messageClass);
         installed += hookSysCmdExtension(classLoader);
         installed += hookContactEntity(classLoader);
         if (installed == 0) {
-            throw new NoSuchMethodException("No documented 8.0.70 inbound path found");
+            throw new NoSuchMethodException("No documented 8.0.78/8.0.79 inbound path found");
         }
         WechatHook.logAdapterInfo(
-                "8.0.78 inbound paths installed=" + installed);
+                "8.0.78/8.0.79 inbound paths installed=" + installed);
     }
 
     private static int hookTwoArgMessagePath(
             ClassLoader classLoader,
             String className,
-            String methodName,
+            String[] methodNames,
             Class<?> messageClass,
             Class<?> addMsgClass,
             String source) {
@@ -76,11 +82,25 @@ final class Wechat8078Adapter {
         Method target = null;
         for (Method method : helperClass.getDeclaredMethods()) {
             Class<?>[] parameters = method.getParameterTypes();
-            if (!methodName.equals(method.getName()) || parameters.length != 2) {
+            if (parameters.length != 2) {
                 continue;
             }
-            if (compatible(parameters[0], messageClass)
-                    && compatible(parameters[1], addMsgClass)) {
+            boolean nameMatch = false;
+            if (methodNames == null || methodNames.length == 0) {
+                nameMatch = true;
+            } else {
+                for (String candidate : methodNames) {
+                    if (candidate.equals(method.getName())) {
+                        nameMatch = true;
+                        break;
+                    }
+                }
+            }
+            if (!nameMatch) {
+                continue;
+            }
+            if ((compatible(parameters[0], messageClass) && compatible(parameters[1], addMsgClass))
+                    || (compatible(parameters[0], addMsgClass) && compatible(parameters[1], messageClass))) {
                 target = method;
                 break;
             }
@@ -109,56 +129,44 @@ final class Wechat8078Adapter {
      *  用于本地解密 EnMicroMsg.db 直查消息完整内容（引用文字定位）。 */
     private static int hookAdditionalStoragePaths(
             ClassLoader classLoader, Class<?> messageClass) {
-        Class<?> helperClass;
-        try {
-            helperClass = XposedHelpers.findClass(INSERT_HELPER_CLASS, classLoader);
-        } catch (Throwable ignored) {
-            return 0;
-        }
         int installed = 0;
-        for (Method method : helperClass.getDeclaredMethods()) {
-            if ("n".equals(method.getName())) {
-                continue; // 已有专路
-            }
-            Class<?>[] ps = method.getParameterTypes();
-            if (ps.length == 0) {
-                continue;
-            }
-            boolean relevant = false;
-            for (Class<?> p : ps) {
-                if (p == messageClass || p == java.util.List.class) {
-                    relevant = true;
-                    break;
-                }
-            }
-            if (!relevant) {
-                continue;
-            }
+        for (String helperName : INSERT_HELPER_CLASSES) {
+            Class<?> helperClass;
             try {
+                helperClass = XposedHelpers.findClass(helperName, classLoader);
+            } catch (Throwable ignored) {
+                continue;
+            }
+            for (Method method : helperClass.getDeclaredMethods()) {
+                if ("n".equals(method.getName()) || "o".equals(method.getName())) {
+                    continue; // 已有专路
+                }
+                Class<?>[] ps = method.getParameterTypes();
+                if (ps.length == 0) {
+                    continue;
+                }
+                boolean relevant = false;
+                for (Class<?> p : ps) {
+                    if (p == messageClass || p == java.util.List.class) {
+                        relevant = true;
+                        break;
+                    }
+                }
+                if (!relevant) {
+                    continue;
+                }
+                final String methodName = method.getName();
                 method.setAccessible(true);
                 XposedBridge.hookMethod(method, new XC_MethodHook() {
                     @Override
                     protected void afterHookedMethod(MethodHookParam param) {
-                        Object first = param.args[0];
-                        if (first instanceof java.util.List) {
-                            for (Object item : (java.util.List<?>) first) {
-                                if (item != null && item.getClass().getName()
-                                        .equals(MESSAGE_CLASS)) {
-                                    captureMessage(
-                                            "wechat-8.0.70/extra-list-"
-                                                    + method.getName(), item);
-                                }
-                            }
-                        } else if (first != null && first.getClass().getName()
-                                .equals(MESSAGE_CLASS)) {
-                            captureMessage(
-                                    "wechat-8.0.70/extra-"
-                                            + method.getName(), first);
+                        Object first = param.args.length > 0 ? param.args[0] : null;
+                        if (first != null && first.getClass() == messageClass) {
+                            captureMessage("helper-addl/" + methodName, first);
                         }
                     }
                 });
                 installed++;
-            } catch (Throwable ignored) {
             }
         }
         return installed;
@@ -197,11 +205,20 @@ final class Wechat8078Adapter {
     
     private static int hookSysCmdExtension(ClassLoader classLoader) {
         try {
-            Class<?> fdClass = XposedHelpers.findClass("b41.fd", classLoader);
+            Class<?> fdClass = null;
+            for (String fdName : new String[]{"l41.fd", "b41.fd"}) {
+                try {
+                    fdClass = XposedHelpers.findClass(fdName, classLoader);
+                    if (fdClass != null) break;
+                } catch (Throwable ignored) {}
+            }
+            if (fdClass == null) {
+                return 0;
+            }
             Class<?> p0Class = XposedHelpers.findClass("com.tencent.mm.modelbase.p0", classLoader);
             Method kMethod = null;
             for (Method m : fdClass.getDeclaredMethods()) {
-                if ("k".equals(m.getName()) && m.getParameterTypes().length == 1 && compatible(m.getParameterTypes()[0], p0Class)) {
+                if (m.getParameterTypes().length == 1 && compatible(m.getParameterTypes()[0], p0Class)) {
                     kMethod = m;
                     break;
                 }
@@ -218,10 +235,14 @@ final class Wechat8078Adapter {
                                 if (k4Obj != null) {
                                     Object q16Obj = XposedHelpers.getObjectField(k4Obj, "h");
                                     if (q16Obj != null) {
-                                        String msgContent = (String) XposedHelpers.callStaticMethod(
-                                                XposedHelpers.findClass("x91.j1", classLoader),
-                                                "g",
-                                                q16Obj);
+                                        String msgContent = null;
+                                        for (String j1Name : new String[]{"ha1.j1", "x91.j1"}) {
+                                            try {
+                                                Class<?> j1Cls = XposedHelpers.findClass(j1Name, classLoader);
+                                                msgContent = (String) XposedHelpers.callStaticMethod(j1Cls, "g", q16Obj);
+                                                if (msgContent != null) break;
+                                            } catch (Throwable ignored) {}
+                                        }
                                         if (msgContent != null && msgContent.contains("type=") && msgContent.contains("pat")) {
                                             String fromUser = extractXmlTag(msgContent, "fromusername");
                                             String chatUser = extractXmlTag(msgContent, "chatusername");
@@ -284,8 +305,56 @@ final class Wechat8078Adapter {
 
     static void sendText(ClassLoader classLoader, String talker, String content)
             throws Throwable {
-        Class<?> sendLogic = XposedHelpers.findClass("oh0.c", classLoader);
-        XposedHelpers.callStaticMethod(sendLogic, "a", talker, content, 1, 0, null, null, null);
+        // 尝试 8.0.79 的最新发信入口 wh0.c.a(...)
+        try {
+            Class<?> sendLogic79 = XposedHelpers.findClass("wh0.c", classLoader);
+            if (sendLogic79 != null) {
+                for (Method m : sendLogic79.getDeclaredMethods()) {
+                    if ("a".equals(m.getName()) && m.getParameterTypes().length == 7) {
+                        m.setAccessible(true);
+                        m.invoke(null, talker, content, 1, 0, null, null, null);
+                        return;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // 兼容 8.0.78 原入口 oh0.c.a(...)
+        try {
+            Class<?> sendLogic78 = XposedHelpers.findClass("oh0.c", classLoader);
+            if (sendLogic78 != null) {
+                for (Method m : sendLogic78.getDeclaredMethods()) {
+                    if ("a".equals(m.getName()) && m.getParameterTypes().length == 7) {
+                        m.setAccessible(true);
+                        m.invoke(null, talker, content, 1, 0, null, null, null);
+                        return;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // 兜底直接构建 NetSceneSendMsg 压入网络队列
+        Class<?> netSceneClass = XposedHelpers.findClass("f61.s0", classLoader);
+        java.lang.reflect.Constructor<?> ctor = null;
+        for (java.lang.reflect.Constructor<?> c : netSceneClass.getDeclaredConstructors()) {
+            Class<?>[] pts = c.getParameterTypes();
+            if (pts.length == 6 && pts[0] == String.class && pts[1] == String.class) {
+                ctor = c;
+                break;
+            }
+        }
+        if (ctor != null) {
+            ctor.setAccessible(true);
+            Object netScene = ctor.newInstance(talker, content, 1, 0, null, null);
+            Class<?> h9Class = XposedHelpers.findClass("l41.h9", classLoader);
+            Object queue = XposedHelpers.callStaticMethod(h9Class, "e");
+            XposedHelpers.callMethod(queue, "g", netScene);
+            return;
+        }
+
+        throw new NoSuchMethodError("No sendText method found for WeChat 8.0.78/8.0.79");
     }
 
     private static void captureMessage(String source, Object message) {
@@ -441,6 +510,296 @@ final class Wechat8078Adapter {
                             + " svrid=" + quoteSvrIdLong);
                 }
             }
+
+            // ── 文件消息 (type == 49, sub 6) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 6)) {
+                String fileName = extractXmlTag(content, "title");
+                String totallen = extractXmlTag(content, "totallen");
+                String fileDesc = "[文件] " + (fileName != null ? fileName : "附件文件")
+                        + (totallen != null ? " (" + formatFileSize(totallen) + ")" : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, fileDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 合并转发聊天记录 (type == 49, sub 19) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 19)) {
+                String title = extractXmlTag(content, "title");
+                String des = extractXmlTag(content, "des");
+                String recordDesc = "[聊天记录] " + (title != null ? title : "合并转发")
+                        + (des != null && !des.isEmpty() ? "\n" + des : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, recordDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 网页与文章链接 (type == 49, sub 5 或 sub 1) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && (isAppMsgType(content, 5) || isAppMsgType(content, 1))) {
+                String title = extractXmlTag(content, "title");
+                String des = extractXmlTag(content, "des");
+                String url = extractXmlTag(content, "url");
+                String linkDesc = "[链接] " + (title != null ? title : "网页分享")
+                        + (des != null && !des.isEmpty() ? "\n" + des : "")
+                        + (url != null && !url.isEmpty() ? "\n" + url : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, linkDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 小程序卡片 (type == 49, sub 33 或 sub 36) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && (isAppMsgType(content, 33) || isAppMsgType(content, 36))) {
+                String title = extractXmlTag(content, "title");
+                String appName = extractXmlTag(content, "sourcedisplayname");
+                String mpDesc = "[小程序] " + (appName != null && !appName.isEmpty() ? appName + " - " : "") + (title != null ? title : "小程序卡片");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, mpDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 视频号视频 (type == 49, sub 51) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 51)) {
+                String title = extractXmlTag(content, "title");
+                String author = extractXmlTag(content, "nickname");
+                String chDesc = "[视频号] " + (author != null && !author.isEmpty() ? author + ": " : "") + (title != null ? title : "视频分享");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, chDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 视频号直播 (type == 49, sub 53) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 53)) {
+                String title = extractXmlTag(content, "title");
+                String author = extractXmlTag(content, "nickname");
+                String liveDesc = "[视频号直播] " + (author != null && !author.isEmpty() ? author + ": " : "") + (title != null ? title : "直播分享");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, liveDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 微信笔记 (type == 49, sub 24) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 24)) {
+                String title = extractXmlTag(content, "title");
+                String des = extractXmlTag(content, "des");
+                String noteDesc = "[微信笔记] " + (title != null ? title : "笔记分享")
+                        + (des != null && !des.isEmpty() ? "\n" + des : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, noteDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 音乐卡片 (type == 49, sub 3) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 3)) {
+                String title = extractXmlTag(content, "title");
+                String singer = extractXmlTag(content, "des");
+                String musicDesc = "[音乐分享] " + (title != null ? title : "音乐") + (singer != null && !singer.isEmpty() ? " - " + singer : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, musicDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 微信转账 (type == 49, sub 2000) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 2000)) {
+                String fee = extractXmlTag(content, "feedesc");
+                String memo = extractXmlTag(content, "pay_memo");
+                String transferDesc = "[微信转账] " + (fee != null ? fee : "转账")
+                        + (memo != null && !memo.isEmpty() ? " (" + memo + ")" : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, transferDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 微信红包 (type == 49, sub 2001) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && isAppMsgType(content, 2001)) {
+                String wish = extractXmlTag(content, "sendertitle");
+                String redDesc = "[微信红包] " + (wish != null ? wish : "恭喜发财，大吉大利");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, redDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 群接龙 (type == 49, sub 129 或 0x55000031) ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && (isAppMsgType(content, 129) || type == 1426063409)) {
+                String title = extractXmlTag(content, "title");
+                String des = extractXmlTag(content, "des");
+                String solDesc = "[群接龙] " + (title != null ? title : "接龙消息")
+                        + (des != null && !des.isEmpty() ? "\n" + des : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, solDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 其他未细分 AppMsg 卡片兜底 ──
+            if ((type & 0xFF) == 49 && content != null && isSend == 0 && !content.contains("<refermsg>")
+                    && !isAppMsgType(content, 6) && !isAppMsgType(content, 19)
+                    && !isAppMsgType(content, 1) && !isAppMsgType(content, 5)
+                    && !isAppMsgType(content, 33) && !isAppMsgType(content, 36)
+                    && !isAppMsgType(content, 51) && !isAppMsgType(content, 53)
+                    && !isAppMsgType(content, 24) && !isAppMsgType(content, 3)
+                    && !isAppMsgType(content, 2000) && !isAppMsgType(content, 2001)
+                    && !isAppMsgType(content, 129)) {
+                String title = extractXmlTag(content, "title");
+                String des = extractXmlTag(content, "des");
+                if (title != null && !title.isEmpty()) {
+                    String cardDesc = "[卡片] " + title + (des != null && !des.isEmpty() ? " - " + des : "");
+                    WechatHook.captureTextFields(
+                            "wechat-8.0.78/" + source,
+                            1,
+                            isSend,
+                            talker,
+                            formatGroupContent(talker, content, cardDesc),
+                            createTime,
+                            msgId,
+                            msgSvrId,
+                            mentioned,
+                            0L);
+                }
+            }
+
+            // ── 语音消息 (type == 34) ──
+            if (type == 34 && content != null && isSend == 0) {
+                String voiceLenStr = extractXmlAttr(content, "voicelength");
+                long sec = 0;
+                try {
+                    if (voiceLenStr != null && !voiceLenStr.isEmpty()) {
+                        sec = Math.round(Long.parseLong(voiceLenStr) / 1000.0);
+                    }
+                } catch (Throwable ignored) {}
+                String transContent = stringFieldOrMethods(message, "field_transContent", new String[]{"getTransContent"});
+                String voiceDesc = "[语音: " + (sec > 0 ? sec + "秒" : "语音") + "]"
+                        + (transContent != null && !transContent.isEmpty() ? " " + transContent : "");
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, voiceDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 视频/小视频 (type == 43 或 type == 62) ──
+            if ((type == 43 || type == 62) && isSend == 0) {
+                String videoDesc = "[视频]";
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, videoDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
+            // ── 语音/视频通话信令 (type == 50, 52, 55, 64) ──
+            if ((type == 50 || type == 52 || type == 55 || type == 64) && isSend == 0) {
+                String voipDesc = "[语音通话/视频通话]";
+                WechatHook.captureTextFields(
+                        "wechat-8.0.78/" + source,
+                        1,
+                        isSend,
+                        talker,
+                        formatGroupContent(talker, content, voipDesc),
+                        createTime,
+                        msgId,
+                        msgSvrId,
+                        mentioned,
+                        0L);
+            }
+
             if (type == 3) {
                 // 图片消息：8.0.70 字段名已实测确认（field_imgPath，
                 // 值 THUMBNAIL_DIRPATH://th_<32hex>）。
@@ -1616,7 +1975,45 @@ final class Wechat8078Adapter {
         }
     }
 
-    /** 从 XML 字符串中提取指定标签的文本（单行标签，如 <title>xxx</title>）。 */
+    /** 格式化群聊消息正文（加上群成员发送者前缀）。 */
+    private static String formatGroupContent(String talker, String rawContent, String text) {
+        if (isGroupTalker(talker)) {
+            String qSender = quoteSender(rawContent);
+            if (qSender != null && !qSender.isEmpty()) {
+                return qSender + ":\n" + text;
+            }
+        }
+        return text;
+    }
+
+    /** 检查 AppMsg 的子类型是否匹配。 */
+    private static boolean isAppMsgType(String xml, int targetType) {
+        if (xml == null) return false;
+        String typeTag = extractXmlTag(xml, "type");
+        if (typeTag != null) {
+            try {
+                if (typeTag.startsWith("<![CDATA[") && typeTag.endsWith("]]>")) {
+                    typeTag = typeTag.substring(9, typeTag.length() - 3);
+                }
+                return Integer.parseInt(typeTag.trim()) == targetType;
+            } catch (Throwable ignored) {}
+        }
+        return false;
+    }
+
+    /** 格式化文件大小为易读字符串。 */
+    private static String formatFileSize(String totalLenStr) {
+        try {
+            long bytes = Long.parseLong(totalLenStr.trim());
+            if (bytes < 1024) return bytes + "B";
+            if (bytes < 1024 * 1024) return String.format(java.util.Locale.ROOT, "%.1fKB", bytes / 1024.0);
+            return String.format(java.util.Locale.ROOT, "%.1fMB", bytes / (1024.0 * 1024.0));
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    /** 从 XML 字符串中提取指定标签的文本（单行标签，如 <title>xxx</title>），支持 CDATA 与实体转义还原。 */
     private static String extractXmlTag(String xml, String tag) {
         if (xml == null || tag == null) {
             return null;
@@ -1633,6 +2030,15 @@ final class Wechat8078Adapter {
             return null;
         }
         String value = xml.substring(start, end);
+        if (value.startsWith("<![CDATA[") && value.endsWith("]]>")) {
+            value = value.substring(9, value.length() - 3);
+        }
+        value = value.replace("&#x20;", " ")
+                     .replace("&nbsp;", " ")
+                     .replace("&amp;", "&")
+                     .replace("&lt;", "<")
+                     .replace("&gt;", ">")
+                     .replace("&quot;", "\"");
         return value.replaceAll("\\s+", " ").trim();
     }
 
