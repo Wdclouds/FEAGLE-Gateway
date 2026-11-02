@@ -72,6 +72,7 @@ function extractHits(data: any, limit: number): MemoryHit[] {
     hall: m.hall ?? undefined,
     score: m.score ?? m.similarity ?? 1.0,
     created_at: m.created_at ?? undefined,
+    metadata: m.metadata ?? undefined,
   }));
 
   // 经过时效半衰期过滤与重排序，再截取 limit
@@ -90,13 +91,35 @@ export async function summon(query: string, topK = MN.topK): Promise<MemoryHit[]
   }
 }
 
-/** 语义检索（memories/search，注意兼容第三方 Mnemosyne API 入参） */
-export async function semanticSearch(query: string, topK = 10): Promise<MemoryHit[]> {
+export interface SearchMemoryOptions {
+  topK?: number;
+  chatId?: string;
+  scope?: string;
+  category?: string;
+  includeTest?: boolean;
+}
+
+/** 语义检索（memories/search，支持会话空间隔离与测试数据过滤） */
+export async function semanticSearch(
+  query: string,
+  options: number | SearchMemoryOptions = 10
+): Promise<MemoryHit[]> {
+  const opts: SearchMemoryOptions = typeof options === 'number' ? { topK: options } : options;
+  const topK = opts.topK ?? 10;
   try {
-    // 优先调用标准 search（不传非标准参数，防止 asyncpg 参数个数报错）
+    const payload: Record<string, unknown> = {
+      user_id: MN.userId,
+      query,
+      top_k: topK,
+    };
+    if (opts.chatId) payload.chat_id = opts.chatId;
+    if (opts.scope) payload.scope = opts.scope;
+    if (opts.category) payload.category_filter = opts.category;
+    if (opts.includeTest) payload.include_test = true;
+
     const data = await mnFetch('/api/v1/memories/search', {
       method: 'POST',
-      body: JSON.stringify({ user_id: MN.userId, query }),
+      body: JSON.stringify(payload),
     });
     return extractHits(data, topK);
   } catch {

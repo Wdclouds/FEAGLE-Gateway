@@ -2,7 +2,7 @@
  * Control Plane v2.0 —— 审批双通道 / Persona / Cron / 审计
  * 零新增容器、零新增依赖（node:sqlite + fetch）。
  */
-import { appendFileSync, existsSync, statSync, renameSync } from 'node:fs';
+import { appendFileSync, existsSync, statSync, renameSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config, isGroup } from './config.js';
 import { db, trace } from './db.js';
@@ -165,9 +165,87 @@ export function loadPersonas(): void {
     op_only: ['architect', 'readonly_auditor'].includes(r.id),
   }]));
 }
-export function getPersona(id: string, isOp = true): Persona {
+// ============ 群聊独立 Markdown 人设与群规加载器 ============
+interface ChannelDocCache {
+  mtime: number;
+  content: string;
+}
+const docCache = new Map<string, ChannelDocCache>();
+
+function readFileCached(filePath: string): string | null {
+  try {
+    if (!existsSync(filePath)) return null;
+    const stat = statSync(filePath);
+    const cached = docCache.get(filePath);
+    if (cached && cached.mtime === stat.mtimeMs) {
+      return cached.content;
+    }
+    const content = readFileSync(filePath, 'utf-8');
+    docCache.set(filePath, { mtime: stat.mtimeMs, content });
+    return content;
+  } catch {
+    return null;
+  }
+}
+
+export function loadChannelPersona(chatId: string): Persona | null {
+  const baseDir = config.channelsDir;
+  const chatDir = join(baseDir, chatId);
+  const defaultDir = join(baseDir, 'default');
+
+  // 1. 查找 persona.md (优先特定群，兜底 default)
+  let personaText = readFileCached(join(chatDir, 'persona.md'));
+  if (!personaText) {
+    personaText = readFileCached(join(defaultDir, 'persona.md'));
+  }
+
+  // 2. 查找 rules.md (优先特定群，兜底 default)
+  let rulesText = readFileCached(join(chatDir, 'rules.md'));
+  if (!rulesText) {
+    rulesText = readFileCached(join(defaultDir, 'rules.md'));
+  }
+
+  if (!personaText && !rulesText) return null;
+
+  const combinedPrompt = [
+    personaText || '你是微信群聊专属 AI 助手。性格聪慧亲切、热情得体。',
+    rulesText ? `\n\n【群聊最高安全与行为铁律】：\n${rulesText}` : '',
+  ].join('');
+
+  return {
+    id: `channel_${chatId}`,
+    name: `群独立人设 (${chatId.endsWith('@chatroom') ? chatId.replace('@chatroom', '').slice(-6) : chatId})`,
+    sys_prompt: combinedPrompt,
+    engine_mode: 'l1_only',
+    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search'],
+    allow_shell: false,
+    op_only: false,
+  };
+}
+
+export function getPersona(id: string, isOp = true, chatId?: string): Persona {
+  // 1. 如果指定了 chatId 且属于群聊，优先加载群聊专属 Markdown 人设与群规
+  if (chatId && isGroup(chatId)) {
+    const channelPersona = loadChannelPersona(chatId);
+    if (channelPersona) {
+      return channelPersona;
+    }
+  }
+
+  // 2. 正常读取 SQLite / 缓存人设
   const p = personaCache.get(id) || personaCache.get('daily_assistant') || DEFAULT_PERSONAS[1];
-  // 非 OP 用户强行读取里人设时，硬降级为默认表面人设 (灵动助手)
+
+  // 3. 铁律：如果是群聊，无论任何人（包括 OP），绝对强制降级为表人设 / 禁用 Shell
+  if (chatId && isGroup(chatId)) {
+    return {
+      ...p,
+      engine_mode: 'l1_only',
+      allow_shell: false,
+      op_only: false,
+    };
+  }
+
+  // 4. 非 OP 用户强行读取里人设时，硬降级为默认表面人设 (灵动助手)
   if (!isOp && p.op_only) {
     return personaCache.get('daily_assistant') || DEFAULT_PERSONAS[1];
   }
@@ -191,9 +269,11 @@ interface SessionRow {
 export function getSession(chatId: string): SessionRow {
   touchSessionRow(chatId);
   const row = db.prepare('SELECT chat_id, persona_id, workspace, pending_confirm_id, mode FROM sessions WHERE chat_id = ?').get(chatId) as any;
+  const isGrp = isGroup(chatId);
+  const defaultPersona = isGrp ? 'daily_assistant' : 'architect';
   return {
     chat_id: row.chat_id,
-    persona_id: row.persona_id,
+    persona_id: row.persona_id || defaultPersona,
     workspace: row.workspace,
     pending_confirm_id: row.pending_confirm_id,
     mode: (['chat', 'sentry', 'mute'].includes(row.mode) ? row.mode : 'chat') as GatewayMode,
@@ -201,8 +281,10 @@ export function getSession(chatId: string): SessionRow {
 }
 function touchSessionRow(chatId: string): void {
   const now = Date.now();
-  db.prepare('INSERT INTO sessions(chat_id, updated_at) VALUES(?, ?) ON CONFLICT(chat_id) DO UPDATE SET updated_at = ?')
-    .run(chatId, now, now);
+  const isGrp = isGroup(chatId);
+  const defaultPersona = isGrp ? 'daily_assistant' : 'architect';
+  db.prepare('INSERT INTO sessions(chat_id, persona_id, updated_at) VALUES(?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET updated_at = ?')
+    .run(chatId, defaultPersona, now, now);
 }
 export function setMode(chatId: string, mode: GatewayMode): void {
   touchSessionRow(chatId);

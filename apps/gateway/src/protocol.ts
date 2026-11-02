@@ -59,6 +59,7 @@ export interface MemoryHit {
   hall?: string;
   score?: number;
   created_at?: string;
+  metadata?: Record<string, unknown>;
   effectiveScore?: number; // 经时间半衰期衰减后的最终排序得分
   isExpired?: boolean;     // 是否被判定为过时淘汰
 }

@@ -106,6 +106,9 @@ async function flushSentry(chatId: string): Promise<void> {
           subject: rel.subject,
           relation: rel.relation,
           object: rel.object,
+          scope: 'group',
+          visibility: 'private_op',
+          is_test: false,
           ts: Date.now(),
         });
       }
@@ -197,16 +200,16 @@ function buildTaskPrompt(pkts: WxInboundPkt[], memories: MemoryHit[], personaPro
 
 /** 通道 B 金牌重放：带原始 Prompt 重新触发 Pi */
 async function runReplay(chat: string, prompt: string, rid?: string): Promise<void> {
-  const persona = getPersona(getSession(chat).persona_id);
+  const persona = getPersona(getSession(chat).persona_id, true, chat);
   const mems: MemoryHit[] = [];
-  try { mems.push(...await semanticSearch(prompt.slice(0, 200), 3)); } catch { /* 检索失败不阻塞 */ }
+  try { mems.push(...await semanticSearch(prompt.slice(0, 200), { topK: 3, chatId: chat, includeTest: false })); } catch { /* 检索失败不阻塞 */ }
   await runTaskCore(chat, prompt, mems, persona, rid ?? `replay_${Date.now()}`);
 }
 
 async function runTask(pkts: WxInboundPkt[], origin: WxInboundPkt, imgDesc?: string | null): Promise<void> {
   const chat = origin.c;
   const rid = origin.rid ?? `wx_${Date.now()}`;
-  const persona = getPersona(getSession(chat).persona_id);
+  const persona = getPersona(getSession(chat).persona_id, true, chat);
   const memories = await prefetchMemories(pkts, persona);
   const promptText = buildTaskPrompt(pkts, memories, persona.sys_prompt, imgDesc);
   await runTaskCore(chat, promptText, memories, persona, rid, origin);
@@ -253,16 +256,22 @@ async function runTaskCore(
   }
 }
 
-/** 记忆预取（任务前置，独立函数便于复用） */
+/** 记忆预取（任务前置，带空间隔离与防串台过滤） */
 async function prefetchMemories(pkts: WxInboundPkt[], _persona: ReturnType<typeof getPersona>): Promise<MemoryHit[]> {
+  const chat = pkts[0]?.c ?? '-';
   const query = toCompactLines(pkts).slice(-400);
   let memories: MemoryHit[] = [];
   try {
     memories = await summon(query);
-    if (memories.length === 0) memories = await semanticSearch(query, 5);
+    if (memories.length === 0) {
+      memories = await semanticSearch(query, {
+        topK: 5,
+        chatId: chat !== '-' ? chat : undefined,
+        includeTest: false,
+      });
+    }
   } catch { /* 记忆库故障不阻塞任务 */ }
-  const chat = pkts[0]?.c ?? '-';
-  trace(chat, 'L2', 'memory_prewarm', { hits: memories.length });
+  trace(chat, 'L2', 'memory_prewarm', { hits: memories.length, chat });
   return memories;
 }
 
@@ -280,10 +289,17 @@ async function historian(chat: string, origin: WxInboundPkt, userTranscript: str
 
   let written = 0;
   for (const m of allowed) {
+    const isGrp = isGroup(chat);
     // 写入时加注规范状态前缀与来源标签（源头防腐）
     const taggedContent = `[CURRENT][${m.category.toUpperCase()}] ${m.content}`;
     const ok = await remember(taggedContent, m.category, {
-      source: 'historian', chat_id: chat, sender: origin.u, ts: Date.now(),
+      source: 'historian',
+      chat_id: chat,
+      sender: origin.u,
+      scope: isGrp ? 'group' : 'private',
+      visibility: isGrp ? 'group' : 'private',
+      is_test: false,
+      ts: Date.now(),
     });
     if (ok) written++;
   }
@@ -402,8 +418,8 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
   const compactHistory = toCompactLines(pkts);
   const isOp = config.adminWxids.includes(last.u);
 
-  // 人设解析：OP 可用任意指定人设，普通用户强行指定里人设时降级为表人设
-  const persona = getPersona(last.persona_id || getSession(chat).persona_id, isOp);
+  // 人设解析：OP 可用任意指定人设，群聊优先独立 MD 文档，普通用户强行指定里人设时降级为表人设
+  const persona = getPersona(last.persona_id || getSession(chat).persona_id, isOp, chat);
   const memories = await prefetchMemories(pkts, persona);
 
   // 人设 l1_only：强制不唤醒 Pi，DeepSeek 带人设直答（蓝图破局二）

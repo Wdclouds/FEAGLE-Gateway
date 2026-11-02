@@ -81,6 +81,7 @@ export const config = {
 
   // 数据库与日志
   dbPath: get('DB_PATH', join(ROOT, 'data', 'gateway.db')),
+  channelsDir: get('CHANNELS_DIR', join(ROOT, 'data', 'channels')),
 
   // 微信出口批次默认参数
   out: {

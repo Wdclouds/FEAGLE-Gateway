@@ -159,7 +159,7 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
         `• Pi 状态: ${p.alive ? `PID ${p.pid} (在线 ${Math.round(p.uptimeMs / 1000)}s)` : '已回收 (闲置待命)'}\n` +
         `• 全局任务: ${piManager.busy() ? '🔴 BUSY (运行中)' : '🟢 IDLE (空闲)'}\n` +
         `• 会话租约: ${getLease(pkt.c) ? '🔒 占用' : '🔓 空闲'}\n` +
-        `• 当前人设: ${getPersona(sess.persona_id, true).name} (${sess.persona_id})\n` +
+        `• 当前人设: ${getPersona(sess.persona_id, true, pkt.c).name} (${sess.persona_id})\n` +
         `• 定时任务: ${jobs.length} 个启用中\n` +
         `• 待办审批: ${pend ? pend + ' 挂起中' : '无'}\n` +
         `• 工作模式: 【${sess.mode}】`;
