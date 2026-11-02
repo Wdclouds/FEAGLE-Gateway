@@ -1225,7 +1225,7 @@ export class AndroidWechatClient {
     if (!talker) throw new Error(`未找到 OneBot 用户映射: ${onebotUserId}`);
     const content = String(text || '');
     if (!content || Array.from(content).length > 2_000) {
-      throw new Error('首期仅支持 1-2000 字的私聊文本消息');
+      throw new Error('私聊消息内容必须为 1-2000 字');
     }
 
     const commandId = await this.sendAgentText('private', talker, content);
