@@ -391,8 +391,8 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
         const rawNotes = notes.slice(0, 6).join('\n---\n');
         let finalReply = '';
         try {
-          const summaryPrompt = `用户正在询问关于【${xhsKeyword}】的信息。以下是通过端侧设备从小红书实时检索抓取到的真实笔记核心内容：\n${rawNotes}\n\n请以群助手 Nox 的身份，结合这些最新真实笔记，为群友输出一段干货满满、重点突出的总结：\n1. 明确说明这是“刚从小红书实时翻出来的新鲜笔记”；\n2. 提取出大家最关心的几个避坑/经验重点（带出笔记里提到的真实细节，不要空泛）；\n3. 口吻自然亲切、灵动、排版清晰，避免机械式罗列。`;
-          finalReply = await directChat(summaryPrompt, '你是微信群聊智能助手 Nox。语言简炼生动、干货满满。');
+          const summaryPrompt = `用户正在询问关于【${xhsKeyword}】的情报攻略。以下是通过端侧设备从小红书多源采样检索抓取到的真实笔记（含高赞攻略与最新避坑）：\n${rawNotes}\n\n请以群助手 Nox 的身份，作为资深情报分析师进行“货比三家”深度脱水整合：\n1. 【杜绝伪人语气】：严禁使用“家人们/姐妹们/绝绝子/大冤种/狠狠/无脑冲”等营销情绪套话，必须使用客观、利落、专业、有理有据的表达；\n2. 【多源交叉核验结构】：\n   • 📌【公认共识 · 核心准备】：归纳多篇笔记一致认可、不随时间改变的通用经验（如真实装备、公认最佳时段等）；\n   • ⏱️【最新时效 · 关键动态】：提取最新笔记中反映的实时状态、变动条件或近期政策，指出与旧攻略不同的地方；\n   • ⚠️【避坑红线 · 隐藏代价】：提炼吐槽与差评帖中暴露的真实痛点、溢价陷阱或排队代价；\n3. 排版紧凑清晰，以干货和数据为主。`;
+          finalReply = await directChat(summaryPrompt, '你是微信群聊智能助手 Nox。言简意赅、拒绝水词、高信息密度。');
         } catch {
           finalReply = `📕 【小红书实测提炼 · ${xhsKeyword}】\n\n` + notes.slice(0, 5).map((n: string, i: number) => `${i + 1}. ${n}`).join('\n\n');
         }
