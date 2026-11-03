@@ -2,5 +2,6 @@
 <resources>
     <string-array name="xposed_scope">
         <item>com.tencent.mm</item>
+        <item>com.xingin.xhs</item>
     </string-array>
 </resources>

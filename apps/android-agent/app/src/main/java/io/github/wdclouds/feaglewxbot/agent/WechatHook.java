@@ -48,6 +48,11 @@ public final class WechatHook implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam loadPackage)
             throws Throwable {
+        if ("com.xingin.xhs".equals(loadPackage.packageName)) {
+            XhsMaskHook.init(loadPackage);
+            return;
+        }
+
         if (!AgentProtocol.WECHAT_PACKAGE.equals(loadPackage.packageName)) {
             return;
         }
@@ -594,6 +599,14 @@ public final class WechatHook implements IXposedHookLoadPackage {
 
         @Override
         public void handleMessage(Message message) {
+            if (message.what == AgentProtocol.MSG_SEND_IMAGE) {
+                Bundle data = message.getData();
+                String commandId = data.getString("command_id", "");
+                String talker = data.getString("talker", "").trim();
+                String imagePath = data.getString("image_path", "");
+                sendWechatImage(commandId, talker, imagePath);
+                return;
+            }
             if (message.what != AgentProtocol.MSG_SEND_TEXT) {
                 super.handleMessage(message);
                 return;
@@ -627,6 +640,24 @@ public final class WechatHook implements IXposedHookLoadPackage {
                 log("send_text accepted command=" + commandId);
             } catch (Throwable error) {
                 logError("send_text failed command=" + commandId, error);
+                sendCommandResult(
+                        commandId, false, error.getClass().getSimpleName());
+            }
+        });
+    }
+
+    private static void sendWechatImage(String commandId, String talker, String imagePath) {
+        mainHandler.post(() -> {
+            try {
+                if ("8.0.78".equals(installedWechatVersion()) || "8.0.79".equals(installedWechatVersion())) {
+                    Wechat8078Adapter.sendImage(wechatClassLoader, talker, imagePath);
+                } else {
+                    throw new UnsupportedOperationException("Image send not supported on " + installedWechatVersion());
+                }
+                sendCommandResult(commandId, true, "");
+                log("send_image accepted command=" + commandId + " path=" + imagePath);
+            } catch (Throwable error) {
+                logError("send_image failed command=" + commandId, error);
                 sendCommandResult(
                         commandId, false, error.getClass().getSimpleName());
             }

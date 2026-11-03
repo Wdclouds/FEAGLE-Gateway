@@ -547,6 +547,14 @@ public final class BridgeForegroundService extends Service {
                 handleSendText(message);
                 return;
             }
+            if ("send_image".equals(type)) {
+                handleSendImage(message);
+                return;
+            }
+            if ("xhs_search".equals(type)) {
+                handleXhsSearch(message);
+                return;
+            }
             sendCommandError(message.optString("commandId"), "unsupported_command");
         } catch (JSONException error) {
             sendCommandError("", "invalid_json");
@@ -673,6 +681,80 @@ public final class BridgeForegroundService extends Service {
                     "已断开 / disconnected").apply();
             sendCommandError(commandId, "sender_disconnected");
         }
+    }
+
+    private void handleSendImage(JSONObject message) {
+        String commandId = message.optString("commandId", "");
+        String talker = message.optString("talker", "").trim();
+        String imagePath = message.optString("imagePath", "").trim();
+        String chatType = message.optString("chatType", "private");
+        boolean group = "group".equals(chatType);
+        boolean validTalker = group ? validGroupTalker(talker) : validPrivateTalker(talker);
+        if (commandId.isEmpty() || !validTalker || imagePath.isEmpty()) {
+            sendCommandError(commandId, "invalid_image_command");
+            return;
+        }
+        Messenger sender = hookMessenger;
+        if (sender == null) {
+            sendCommandError(commandId, "sender_not_connected");
+            return;
+        }
+
+        String targetPath = imagePath;
+        if (!imagePath.startsWith("/data/data/com.tencent.mm/")) {
+            try {
+                String safePath = "/data/data/com.tencent.mm/cache/out_" + System.currentTimeMillis() + ".jpg";
+                XhsSearchHelper.runSu("cp " + imagePath + " " + safePath + " && chown 10208:10208 " + safePath + " && chmod 666 " + safePath);
+                targetPath = safePath;
+            } catch (Throwable t) {
+                android.util.Log.e("FEAGLE-Agent", "copy image failed: " + t.getMessage());
+            }
+        }
+
+        Message msg = Message.obtain(null, AgentProtocol.MSG_SEND_IMAGE);
+        Bundle data = new Bundle();
+        data.putString("command_id", commandId);
+        data.putString("talker", talker);
+        data.putString("image_path", targetPath);
+        data.putString("chat_type", group ? "group" : "private");
+        msg.setData(data);
+        try {
+            sender.send(msg);
+            int sentCount = prefs.getInt("stat_outbound_count", 0) + 1;
+            prefs.edit()
+                    .putInt("stat_outbound_count", sentCount)
+                    .putLong("stat_last_outbound_time", System.currentTimeMillis())
+                    .apply();
+        } catch (RemoteException error) {
+            hookMessenger = null;
+            sendCommandError(commandId, "sender_disconnected");
+        }
+    }
+
+    private void handleXhsSearch(JSONObject message) {
+        String commandId = message.optString("commandId", "xhs_" + System.currentTimeMillis());
+        String query = message.optString("query").trim();
+        if (query.isEmpty()) {
+            sendCommandError(commandId, "empty_query");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                LogCollector.log("XHS", "开始小红书检索: " + query);
+                JSONObject result = XhsSearchHelper.search(query);
+                JSONObject event = baseEnvelope("command_result");
+                put(event, "commandId", commandId);
+                put(event, "action", "xhs_search");
+                put(event, "ok", result.optBoolean("ok", false));
+                put(event, "result", result);
+                sendOrQueueTransient(event.toString());
+                LogCollector.log("XHS", "小红书检索完成: " + query + " ok=" + result.optBoolean("ok", false));
+            } catch (Exception e) {
+                Log.e(TAG, "handleXhsSearch fail: " + e.getMessage(), e);
+                sendCommandError(commandId, "xhs_execution_error: " + e.getMessage());
+            }
+        }, "feagle-xhs-worker").start();
     }
 
     private void sendCommandError(String commandId, String error) {
