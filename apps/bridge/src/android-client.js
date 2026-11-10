@@ -1300,12 +1300,14 @@ export class AndroidWechatClient {
     // 跨机路径：平板访问不到 Bridge 所在机器的文件系统，图片必须随命令一起下发。
     // imagePath 仅作为同机部署时的兜底字段保留。
     const imageBase64 = await this.readImageBase64(imagePath);
+    // 图片 base64 走慢速上行时可达数 MB，普通命令超时不够用
+    const imageTimeoutMs = Math.max(this.commandTimeoutMs, 180_000);
     const response = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCommands.delete(commandId);
         this.state.patch('android', { pendingCommands: this.pendingCommands.size });
         reject(new Error('Android send_image command timed out'));
-      }, this.commandTimeoutMs);
+      }, imageTimeoutMs);
       timer.unref();
       this.pendingCommands.set(commandId, { resolve, reject, timer });
       this.state.patch('android', { pendingCommands: this.pendingCommands.size });
