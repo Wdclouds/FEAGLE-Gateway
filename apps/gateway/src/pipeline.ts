@@ -352,61 +352,7 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
     return;
   }
 
-  // ⚡ 小红书智能自然语言直达：彻底清洗群聊 @、前后缀口语词
-  const rawClean = pkt.t.replace(/^@\S+[\s\u2005\u00a0]*/, '').trim();
-  let xhsKeyword: string | null = null;
-
-  const mCmd = rawClean.match(/^\/xhs\s+(.+)$/i);
-  if (mCmd) {
-    xhsKeyword = mCmd[1].trim();
-  } else if (/小红书|xhs/i.test(rawClean)) {
-    const p1 = rawClean.match(/^(?:帮我|请|麻烦|快|给|去|在|到|\s)*(?:小红书|xhs)\s*(?:上)?\s*(?:搜搜|搜一下|搜一搜|搜索|搜|查查|查一下|查找|查|看下|看看|看|找找|找一下|找|翻翻|翻一下)?\s*(?:一下|下)?\s*[,，:：\s]*(.+)$/i);
-    const p2 = rawClean.match(/^(?:帮我|请|麻烦|快|给|去|在|到|\s)*(?:搜搜|搜一下|搜一搜|搜索|搜|查查|查一下|查找|查|看下|看看|看|找找|找一下|找)\s*(?:一下|下)?\s*(?:小红书|xhs)\s*(?:上)?\s*[,，:：\s]*(.+)$/i);
-    const pFallback = rawClean.match(/(?:小红书|xhs)\s*(?:上)?\s*(?:搜搜|搜一下|搜一搜|搜索|搜|查查|查一下|查找|查|看下|看看|看|找找|找一下|找|翻翻|翻一下)?\s*(?:一下|下)?\s*[,，:：\s]*(.+)$/i);
-    xhsKeyword = p1?.[1]?.trim() || p2?.[1]?.trim() || pFallback?.[1]?.trim() || null;
-  }
-
-  if (xhsKeyword && (!group || pkt.at)) {
-    xhsKeyword = xhsKeyword.replace(/^[，,。？?！!：:\s]+|[，,。？?！!：:\s]+$/g, '');
-    if (xhsKeyword.length >= 2) {
-      await sendToBridge(quickBatch(pkt.c, `🔍 正在调动平板小红书实时翻找【${xhsKeyword}】，请稍候...`, group ? pkt.u : undefined));
-      try {
-        const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 20000);
-        const res = await fetch('http://127.0.0.1:6192/gw/xhs/search', {
-          method: 'POST',
-          signal: ctl.signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: xhsKeyword }),
-        });
-        clearTimeout(timer);
-        const data = await res.json() as any;
-        const result = data.result || {};
-        const notes = Array.isArray(result.notes) ? result.notes : [];
-        if (!notes.length) {
-          await sendToBridge(quickBatch(pkt.c, `📕 【小红书检索 · ${xhsKeyword}】\n未检索到相关有效笔记，建议换个关键词试试～`, group ? pkt.u : undefined));
-          return;
-        }
-
-        const rawNotes = notes.slice(0, 6).join('\n---\n');
-        let finalReply = '';
-        try {
-          const summaryPrompt = `用户正在询问关于【${xhsKeyword}】的情报攻略。以下是通过端侧设备从小红书多源采样检索抓取到的真实笔记（含高赞攻略与最新避坑）：\n${rawNotes}\n\n请以群助手 Nox 的身份，作为资深情报分析师进行“货比三家”深度脱水整合：\n1. 【杜绝伪人语气】：严禁使用“家人们/姐妹们/绝绝子/大冤种/狠狠/无脑冲”等营销情绪套话，必须使用客观、利落、专业、有理有据的表达；\n2. 【多源交叉核验结构】：\n   • 📌【公认共识 · 核心准备】：归纳多篇笔记一致认可、不随时间改变的通用经验（如真实装备、公认最佳时段等）；\n   • ⏱️【最新时效 · 关键动态】：提取最新笔记中反映的实时状态、变动条件或近期政策，指出与旧攻略不同的地方；\n   • ⚠️【避坑红线 · 隐藏代价】：提炼吐槽与差评帖中暴露的真实痛点、溢价陷阱或排队代价；\n3. 排版紧凑清晰，以干货和数据为主。`;
-          finalReply = await directChat(summaryPrompt, '你是微信群聊智能助手 Nox。言简意赅、拒绝水词、高信息密度。');
-        } catch {
-          finalReply = `📕 【小红书实测提炼 · ${xhsKeyword}】\n\n` + notes.slice(0, 5).map((n: string, i: number) => `${i + 1}. ${n}`).join('\n\n');
-        }
-
-        await sendToBridge(quickBatch(pkt.c, finalReply, group ? pkt.u : undefined));
-        return;
-      } catch (e: any) {
-        await sendToBridge(quickBatch(pkt.c, `❌ 小红书检索暂不可用: ${e.message}`, group ? pkt.u : undefined));
-        return;
-      }
-    }
-  }
-
-  // 🛡️ 屏蔽机制：防止提示词投毒 / 越狱攻击注入拦截 (硬规则，0 成本)
+  // ⚡ 屏蔽机制：防止提示词投毒 / 越狱攻击注入拦截 (硬规则，0 成本)
   if (!systemCron) {
     const toxicCheck = isPromptInjectionOrToxic(pkt.t);
     if (toxicCheck.blocked) {

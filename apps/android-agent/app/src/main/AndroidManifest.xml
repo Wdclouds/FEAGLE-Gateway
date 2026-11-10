@@ -9,7 +9,6 @@
 
     <queries>
         <package android:name="com.tencent.mm" />
-        <package android:name="com.xingin.xhs" />
     </queries>
 
     <application
