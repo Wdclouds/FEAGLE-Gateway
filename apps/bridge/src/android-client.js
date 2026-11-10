@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import { extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveDataPath } from './paths.js';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -176,7 +177,9 @@ export class AndroidWechatClient {
       process.env.ANDROID_PAIRING_ATTEMPT_WINDOW_MS,
       5 * 60_000,
     ),
+    imageStore = null,
   }) {
+    this.imageStore = imageStore;
     this.state = state;
     this.idMap = idMap;
     this.isSleeping = isSleeping;
@@ -1300,10 +1303,22 @@ export class AndroidWechatClient {
 
   async sendAgentImage(chatType, talker, imagePath, isRaw = true) {
     const commandId = randomUUID();
-    // 跨机路径：平板访问不到 Bridge 所在机器的文件系统，图片必须随命令一起下发。
-    // imagePath 仅作为同机部署时的兜底字段保留。
-    const imageBase64 = await this.readImageBase64(imagePath);
-    // 图片 base64 走慢速上行时可达数 MB，普通命令超时不够用
+    const { buffer, contentType } = await this.readImageBuffer(imagePath);
+    let imageUrl = '';
+    if (this.imageStore) {
+      const ticketId = this.imageStore.set(buffer, contentType);
+      const hostPart = this.socket?.feagle?.hostHeader
+        ? this.socket.feagle.hostHeader.split(':')[0]
+        : (this.socket?.localAddress?.includes(':') ? '127.0.0.1' : (this.socket?.localAddress || '127.0.0.1'));
+      const dashPort = process.env.BOT_DASHBOARD_PORT || 6190;
+      const publicHost = process.env.BRIDGE_PUBLIC_HOST || hostPart;
+      imageUrl = `http://${publicHost}:${dashPort}/api/device/outbound-image/${ticketId}`;
+    }
+
+    // 图片走 HTTP 直拉时 WebSocket 仅发 ~150B 指令包，彻底杜绝队头阻塞；
+    // 为兼容未更新的旧版本 Agent，小于 64KB 的小图仍透传 imageBase64 作为兜底。
+    const imageBase64 = (buffer.length <= 64 * 1024 || !imageUrl) ? buffer.toString('base64') : '';
+
     const imageTimeoutMs = Math.max(this.commandTimeoutMs, 180_000);
     const response = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -1321,7 +1336,9 @@ export class AndroidWechatClient {
       chatType,
       talker,
       imagePath,
+      imageUrl,
       imageBase64,
+      imageBytes: buffer.length,
       isRaw: Boolean(isRaw),
     });
     if (!sent) {
@@ -1336,37 +1353,49 @@ export class AndroidWechatClient {
   }
 
   /**
-   * 读取待发送图片并转成 base64。
-   * 支持 http(s) URL、file:// URL 与本地路径（OneBot 的 file:// 形态很常见）。
-   * WebSocket 单条消息要整包进内存，超过 12 MB 直接报错而不是静默截断。
+   * 读取待发送图片原始 Buffer 与 MIME 类型。
+   * 支持 http(s) URL、file:// URL 与本地路径。
    */
-  async readImageBase64(imagePath) {
+  async readImageBuffer(imagePath) {
     if (!imagePath) throw new Error('send_image requires an image path or URL');
-    const maxBytes = 12 * 1024 * 1024;
+    const maxBytes = 24 * 1024 * 1024;
     let buffer;
+    let contentType = 'image/jpeg';
     if (/^https?:\/\//i.test(imagePath)) {
       const response = await fetch(imagePath);
       if (!response.ok) {
         throw new Error(`send_image 图片下载失败: HTTP ${response.status} ${imagePath}`);
       }
+      contentType = response.headers.get('content-type') || contentType;
       buffer = Buffer.from(await response.arrayBuffer());
     } else if (imagePath.startsWith('base64://')) {
-      // OneBot 的 CQ 码里图片常是 base64://<data>，不是文件路径
       buffer = Buffer.from(imagePath.slice('base64://'.length), 'base64');
     } else {
       const localPath = imagePath.startsWith('file://')
         ? fileURLToPath(imagePath)
         : imagePath;
       buffer = await fs.readFile(localPath);
+      const ext = extname(localPath).toLowerCase();
+      if (ext === '.png') contentType = 'image/png';
+      else if (ext === '.gif') contentType = 'image/gif';
+      else if (ext === '.webp') contentType = 'image/webp';
     }
     if (!buffer || buffer.length === 0) {
       throw new Error(`send_image 图片为空: ${imagePath}`);
     }
     if (buffer.length > maxBytes) {
       throw new Error(
-        `send_image 图片过大: ${buffer.length} bytes（上限 ${maxBytes}），无法通过 WebSocket 下发`,
+        `send_image 图片过大: ${buffer.length} bytes（上限 ${maxBytes}）`,
       );
     }
+    return { buffer, contentType };
+  }
+
+  /**
+   * 读取待发送图片并转成 base64（兼容旧调用方）。
+   */
+  async readImageBase64(imagePath) {
+    const { buffer } = await this.readImageBuffer(imagePath);
     return buffer.toString('base64');
   }
 

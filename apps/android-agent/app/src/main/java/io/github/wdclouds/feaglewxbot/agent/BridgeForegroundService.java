@@ -4,9 +4,14 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.Handler;
@@ -59,6 +64,7 @@ public final class BridgeForegroundService extends Service {
     private Messenger notificationMessenger;
     private WebSocketClient socket;
     private int reconnectAttempt;
+    private ConnectivityManager.NetworkCallback networkCallback;
 
     private final Runnable heartbeat = new Runnable() {
         @Override
@@ -81,6 +87,7 @@ public final class BridgeForegroundService extends Service {
         prefs = getSharedPreferences(AgentProtocol.PREFS, MODE_PRIVATE);
         loadReliableState();
         createNotificationChannel();
+        registerNetworkCallback();
     }
 
     @Override
@@ -519,10 +526,17 @@ public final class BridgeForegroundService extends Service {
                 @Override
                 public void onError(Exception error) {
                     if (BridgeForegroundService.this.socket != this) return;
-                    LogCollector.log("ERR", "WebSocket 异常: " + error.getMessage()); Log.w(TAG, "WebSocket error: "
-                            + error.getClass().getSimpleName());
+                    LogCollector.log("ERR", "WebSocket 异常: " + error.getMessage());
+                    Log.w(TAG, "WebSocket error: " + error.getClass().getSimpleName() + " " + error.getMessage());
+                    mainHandler.post(() -> {
+                        if (BridgeForegroundService.this.socket != this) return;
+                        if (!isOpen()) {
+                            scheduleReconnect();
+                        }
+                    });
                 }
             };
+            socket.setConnectionLostTimeout(120);
             setStatus("正在连接 / connecting");
             socket.connect();
         } catch (RuntimeException error) {
@@ -701,11 +715,12 @@ public final class BridgeForegroundService extends Service {
         String talker = message.optString("talker", "").trim();
         String imagePath = message.optString("imagePath", "").trim();
         String imageBase64 = message.optString("imageBase64", "").trim();
+        String imageUrl = message.optString("imageUrl", "").trim();
         String chatType = message.optString("chatType", "private");
         boolean group = "group".equals(chatType);
         boolean validTalker = group ? validGroupTalker(talker) : validPrivateTalker(talker);
         if (commandId.isEmpty() || !validTalker
-                || (imagePath.isEmpty() && imageBase64.isEmpty())) {
+                || (imagePath.isEmpty() && imageBase64.isEmpty() && imageUrl.isEmpty())) {
             sendCommandError(commandId, "invalid_image_command");
             return;
         }
@@ -715,14 +730,15 @@ public final class BridgeForegroundService extends Service {
             return;
         }
 
-        // base64 解码与 su 拷贝都是大图耗时操作，放工作线程，避免阻塞 WebSocket 读线程。
+        // 大图下载与 base64 编解码耗时操作，放工作线程，避免阻塞 WebSocket 读线程。
         final String path = imagePath;
         final String base64 = imageBase64;
+        final String url = imageUrl;
         final String target = talker;
         final boolean isGroup = group;
         final boolean raw = message.optBoolean("isRaw", false);
         new Thread(
-                () -> dispatchSendImage(sender, commandId, target, path, base64, isGroup, raw),
+                () -> dispatchSendImage(sender, commandId, target, path, base64, url, isGroup, raw),
                 "feagle-send-img").start();
     }
 
@@ -732,13 +748,58 @@ public final class BridgeForegroundService extends Service {
             String talker,
             String imagePath,
             String imageBase64,
+            String imageUrl,
             boolean group,
             boolean isRaw) {
+        if (!imageUrl.isEmpty()) {
+            try {
+                byte[] bytes = downloadImageUrl(imageUrl);
+                if (bytes == null || bytes.length == 0) {
+                    sendCommandError(commandId, "image_download_empty");
+                    return;
+                }
+                String base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+                dispatchImageChunks(sender, commandId, talker, base64, group, isRaw);
+                return;
+            } catch (Throwable error) {
+                Log.e(TAG, "Failed to download image from " + imageUrl, error);
+                sendCommandError(commandId, "image_download_failed: " + error.getMessage());
+                return;
+            }
+        }
         if (!imageBase64.isEmpty()) {
             dispatchImageChunks(sender, commandId, talker, imageBase64, group, isRaw);
             return;
         }
         dispatchImageFile(sender, commandId, talker, imagePath, group, isRaw);
+    }
+
+    private byte[] downloadImageUrl(String urlStr) throws Exception {
+        Log.i(TAG, "Downloading outbound image from: " + urlStr);
+        java.net.URL url = new java.net.URL(urlStr);
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+        conn.setConnectTimeout(15_000);
+        conn.setReadTimeout(60_000);
+        conn.setInstanceFollowRedirects(true);
+        int code = conn.getResponseCode();
+        if (code != 200) {
+            throw new java.io.IOException("HTTP " + code + " on image download");
+        }
+        java.io.InputStream in = conn.getInputStream();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try {
+            byte[] buf = new byte[16384];
+            int read;
+            while ((read = in.read(buf)) > 0) {
+                out.write(buf, 0, read);
+            }
+            byte[] result = out.toByteArray();
+            Log.i(TAG, "Outbound image downloaded bytes=" + result.length);
+            return result;
+        } finally {
+            try { in.close(); } catch (Throwable ignored) {}
+            conn.disconnect();
+        }
     }
 
     /**
@@ -845,16 +906,59 @@ public final class BridgeForegroundService extends Service {
         return event;
     }
 
+    private void registerNetworkCallback() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return;
+            NetworkRequest request = new NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build();
+            networkCallback = new ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onAvailable(Network network) {
+                    Log.i(TAG, "Network became available, checking connection");
+                    mainHandler.post(() -> {
+                        if (!running.get()) return;
+                        if (socket == null || !socket.isOpen()) {
+                            Log.i(TAG, "Network restored and socket not open, triggering immediate reconnect");
+                            reconnectAttempt = 0;
+                            mainHandler.removeCallbacks(reconnect);
+                            connect();
+                        }
+                    });
+                }
+            };
+            cm.registerNetworkCallback(request, networkCallback);
+        } catch (Throwable error) {
+            Log.w(TAG, "Failed to register network callback", error);
+        }
+    }
+
+    private void unregisterNetworkCallback() {
+        if (networkCallback != null) {
+            try {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    cm.unregisterNetworkCallback(networkCallback);
+                }
+            } catch (Throwable ignored) {
+            }
+            networkCallback = null;
+        }
+    }
+
     private void scheduleReconnect() {
         if (!running.get()) return;
         mainHandler.removeCallbacks(reconnect);
-        long delay = Math.min(60_000L, 1_000L << Math.min(reconnectAttempt, 6));
+        long delay = Math.min(30_000L, 1_000L << Math.min(reconnectAttempt, 5));
         reconnectAttempt++;
+        Log.i(TAG, "Scheduling reconnect attempt=" + reconnectAttempt + " in " + delay + "ms");
         mainHandler.postDelayed(reconnect, delay);
     }
 
     private void stopAgent() {
         running.set(false);
+        unregisterNetworkCallback();
         persistReliableState();
         cancelRetryTasks();
         mainHandler.removeCallbacksAndMessages(null);

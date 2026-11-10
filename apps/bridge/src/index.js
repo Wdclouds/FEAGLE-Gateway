@@ -10,6 +10,7 @@ import {
 } from './control-state.js';
 import { GROUP_CHAT_MODES } from './group-chat.js';
 import { BridgeSettingsStore } from './bridge-settings.js';
+import { OutboundImageStore } from './image-store.js';
 import { resolveDataPath } from './paths.js';
 import os from 'node:os';
 
@@ -125,11 +126,16 @@ const commonWechatOptions = {
   ),
 };
 
-const wechat = new AndroidWechatClient(commonWechatOptions);
+const outboundImageStore = new OutboundImageStore();
+const wechat = new AndroidWechatClient({
+  ...commonWechatOptions,
+  imageStore: outboundImageStore,
+});
 const dashboard = new DashboardServer({
   state,
   host: '0.0.0.0',
   port: Number(process.env.BOT_DASHBOARD_PORT || 6190),
+  imageStore: outboundImageStore,
   createPairingCode: (ttlMs) => wechat?.pairingStore?.createCode(ttlMs) || null,
   setTestMode: (enabled) => state.patch('testMode', { enabled: Boolean(enabled) }),
   getBridgeSettings: () => settingsStore.snapshot(),

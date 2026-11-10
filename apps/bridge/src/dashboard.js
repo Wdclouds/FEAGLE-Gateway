@@ -74,12 +74,14 @@ export class DashboardServer {
     switchTransport = async () => ({}),
     getProbeRouter = () => null,
     createPairingCode = null,
+    imageStore = null,
     publicRoot = DEFAULT_PUBLIC_ROOT,
   }) {
     this.state = state;
     this.host = host;
     this.port = port;
     this.createPairingCode = createPairingCode;
+    this.imageStore = imageStore;
     this.setTestMode = setTestMode;
     this.sendNotificationTest = sendNotificationTest;
     this.forceWechatRelogin = forceWechatRelogin;
@@ -710,6 +712,27 @@ export class DashboardServer {
           }));
         });
       });
+      return;
+    }
+
+    // ---- GET /api/device/outbound-image/:ticket (平板端大图原生高速直取，彻底消除 WS 队头阻塞) ----
+    if (url.pathname.startsWith('/api/device/outbound-image/')) {
+      const ticket = url.pathname.slice('/api/device/outbound-image/'.length);
+      const item = this.imageStore?.get(ticket);
+      if (!item) {
+        response.writeHead(404, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end('Image expired or not found');
+        return;
+      }
+      response.writeHead(200, {
+        'Content-Type': item.contentType || 'image/jpeg',
+        'Content-Length': item.buffer.length,
+        'Cache-Control': 'no-store',
+      });
+      response.end(item.buffer);
       return;
     }
 
