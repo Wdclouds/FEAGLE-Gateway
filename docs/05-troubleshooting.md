@@ -40,3 +40,13 @@
 - 群聊 @ 机器人防串台：代码就绪，**用户一直没测**
 - Antigravity 两个谷歌账号（kouhaiying77 / w15545178089）来源**待用户确认**
 - 明早 9 点晨报 cron 生产首跑待观察
+## 图片链路：发图失败的四类症状（2026-11-10）
+
+| 症状 | 根因 | 修复 |
+|---|---|---|
+| 服务端 `image_unreachable`，平板收不到命令 | Bridge 只下发 `imagePath`，平板访问不到服务器文件系统 | 改为 base64 随命令下发（`f46eef1`） |
+| `runSu ... code=-1`，`send_image copy ... failed` | Magisk 未授权 Agent 进程（uid 10201）root；且 `/system/bin/su` 不存在 | 改为 Binder 100k 分片，微信进程自己写 `/data/data/com.tencent.mm/cache/feagle_out/`（`c21f871`） |
+| 上传卡在 8KB / `errCode:-7` / `onUploadFailure` | `l1.v` 强改 `fileType=8`、手填 `novac2c.cdn.weixin.qq.com` 与 `debugIP`，破坏 Mars SvrList 调度 | 停止一切改写，原生 `fileType=2`（压缩）/`1`（原图）即可（`0e3d941`） |
+| 发送成功但接收端提示“图片已过期或已被清理” | 业务标签用了 `component_copy_send_img`（剪贴板），与 `fileType=1` 冲突，网关回 `up_task_ret=-10012` 掐断 | 改 `chatting_send_img` + `extra.a=2`（相册来源）（`29d1f60`） |
+
+排查开关：`adb shell setprop debug.feagle.cdn 1` 后重启微信，可输出 `FEAGLE-CDN` / `l1.v OBSERVE` 全字段；默认关闭，避免日志膨胀。

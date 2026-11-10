@@ -2,6 +2,9 @@
 
 > Agent 每次变更在此追加一行（最新在上）。格式：`- 日期: 变更 [@署名]`，重大变更附文件路径。
 
+- 2026-11-10: 微信 8.0.79 图片发图链路全量修复：Bridge 改 base64 下发（跨机路径）、Agent 改 Binder 100k 分片由微信进程落盘（去 root）、停止 l1.v 上传字段改写（修 errCode:-7）、改用相册发图场景 `chatting_send_img` + `extra.a=2` 与原图 `compressType=1`（修接收端“已过期”/`up_task_ret=-10012`）；Agent 0.8.1/17 [@dsh]（apps/bridge/src/android-client.js, gateway-client.js, android-agent/.../BridgeForegroundService.java, WechatHook.java, Wechat8078Adapter.java）
+- 2026-11-10: 新增 CDN 诊断开关 `debug.feagle.cdn`（默认关闭，避免 LSPosed 日志膨胀），并撤销 Agent 进程的 Magisk root 授权（图片链路已不依赖 root） [@dsh]
+
 - 2026-11-02: 落地双轨混合上下文（方案 C：群内隔离 + 私聊穿透），重构复合 SessionKey，杜绝多群多人并发串台 [@hermes]（protocol.ts, pipeline.ts）
 - 2026-11-02: 落地集中硬指令注册表（借鉴 AstrBot 架构，独立收敛在 `src/commands.ts`），纯 TS 原生执行，新增 `/mode`、`/block`（黑名单物理静默丢弃）、`/unblock`、`/sh`、`/sid` 等强执行力指令 [@hermes]（src/commands.ts, control.ts）
 - 2026-11-02: 新增三大运行模式（`chat` 正常交互 / `sentry` 智能哨兵观测 / `mute` 彻底静音），哨兵模式实现群内静默、紧急故障私信 OP 报警、社交图谱与人际关系提炼入库 [@hermes]（pipeline.ts, llm.ts, control.ts）

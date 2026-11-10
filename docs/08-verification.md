@@ -42,3 +42,14 @@
 
 大号发微信 → wxid 抓取（wxid_nt3xb18o5uhl22 入白名单）→ 入站 → 路由 → Pi → 出站回微信全链路 ✅
 视觉链路：红色测试图正确识别 ✅
+
+## V5 — 微信 8.0.79 群聊发图（压缩 / 原图）（2026-11-10）
+
+**目的**：出站图片端到端可用；确认不再触发 CDN 类型鉴权失败与“图片已过期”。
+
+| 用例 | 输入 | 证据 | 结论 |
+|---|---|---|---|
+| 压缩图出站 | 测试1群，1600x1200 JPEG，`isRaw=false` | `PreBuildParams(source=2, compressType=0)` → `l1.v OBSERVE fileType=2` → `cdnUploadImg success` → `send img ... Success svrId:4396175243661442707` | ✅ |
+| 原图出站 | 测试1群，1600x1200 JPEG 1.44MB，`isRaw=true` | `compressType=1` → `l1.v OBSERVE fileType=1` → `keep_onUploadProgress total:1437952 finLen:567295` → `cdnUploadImg success` → `send img ... Success hdImgRet:1 svrId:5850207451005448746` | ✅ |
+| 跨机路径 | 服务器本地图 → 平板 | `send_image dispatched chunks=7 chars=696060` → `image written bytes=47160 path=/data/user/0/com.tencent.mm/cache/feagle_out/...` | ✅ |
+| 反例对照 | 强改上传字段 | 强改 `host/fileType` 时 `onUploadFailure errCode:-7`；`component_copy_send_img` 标签时 `up_task_ret=-10012` 且卡在 8KB；只观测 + 相册场景后均 Success | ✅ 结论：不得改写上传请求，业务标签必须与场景匹配 |
