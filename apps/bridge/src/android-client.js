@@ -1275,27 +1275,27 @@ export class AndroidWechatClient {
     return commandId;
   }
 
-  async sendImage(onebotUserId, imagePath) {
+  async sendImage(onebotUserId, imagePath, isRaw = true) {
     if (!this.loggedIn || this.socket?.readyState !== WebSocket.OPEN) {
       throw new Error('Android WeChat Agent is not connected');
     }
     const talker = this.idMap.protocolId(onebotUserId, 'user');
     if (!talker) throw new Error(`未找到 OneBot 用户映射: ${onebotUserId}`);
-    const commandId = await this.sendAgentImage('private', talker, imagePath);
+    const commandId = await this.sendAgentImage('private', talker, imagePath, isRaw);
     return { MsgID: commandId };
   }
 
-  async sendGroupImage(onebotGroupId, imagePath) {
+  async sendGroupImage(onebotGroupId, imagePath, isRaw = true) {
     if (!this.loggedIn || this.socket?.readyState !== WebSocket.OPEN) {
       throw new Error('Android WeChat Agent is not connected');
     }
     const talker = this.idMap.protocolId(onebotGroupId, 'group');
     if (!talker) throw new Error(`未找到 OneBot 群映射: ${onebotGroupId}`);
-    const commandId = await this.sendAgentImage('group', talker, imagePath);
+    const commandId = await this.sendAgentImage('group', talker, imagePath, isRaw);
     return { MsgID: commandId };
   }
 
-  async sendAgentImage(chatType, talker, imagePath) {
+  async sendAgentImage(chatType, talker, imagePath, isRaw = true) {
     const commandId = randomUUID();
     // 跨机路径：平板访问不到 Bridge 所在机器的文件系统，图片必须随命令一起下发。
     // imagePath 仅作为同机部署时的兜底字段保留。
@@ -1317,6 +1317,7 @@ export class AndroidWechatClient {
       talker,
       imagePath,
       imageBase64,
+      isRaw: Boolean(isRaw),
     });
     if (!sent) {
       const pending = this.pendingCommands.get(commandId);

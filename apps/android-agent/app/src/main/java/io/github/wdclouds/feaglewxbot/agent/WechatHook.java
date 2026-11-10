@@ -610,7 +610,7 @@ public final class WechatHook implements IXposedHookLoadPackage {
                 String commandId = data.getString("command_id", "");
                 String talker = data.getString("talker", "").trim();
                 String imagePath = data.getString("image_path", "");
-                sendWechatImage(commandId, talker, imagePath);
+                sendWechatImage(commandId, talker, imagePath, data.getBoolean("is_raw", false));
                 return;
             }
             if (message.what == AgentProtocol.MSG_SEND_IMAGE_CHUNK) {
@@ -621,7 +621,8 @@ public final class WechatHook implements IXposedHookLoadPackage {
                         data.getString("chat_type", "private"),
                         data.getInt("seq", 0),
                         data.getInt("total", 1),
-                        data.getString("chunk", ""));
+                        data.getString("chunk", ""),
+                        data.getBoolean("is_raw", false));
                 return;
             }
             if (message.what != AgentProtocol.MSG_SEND_TEXT) {
@@ -663,16 +664,16 @@ public final class WechatHook implements IXposedHookLoadPackage {
         });
     }
 
-    private static void sendWechatImage(String commandId, String talker, String imagePath) {
+    private static void sendWechatImage(String commandId, String talker, String imagePath, boolean isRaw) {
         mainHandler.post(() -> {
             try {
                 if ("8.0.78".equals(installedWechatVersion()) || "8.0.79".equals(installedWechatVersion())) {
-                    Wechat8078Adapter.sendImage(wechatClassLoader, talker, imagePath);
+                    Wechat8078Adapter.sendImage(wechatClassLoader, talker, imagePath, isRaw);
                 } else {
                     throw new UnsupportedOperationException("Image send not supported on " + installedWechatVersion());
                 }
                 sendCommandResult(commandId, true, "");
-                log("send_image accepted command=" + commandId + " path=" + imagePath);
+                log("send_image accepted command=" + commandId + " path=" + imagePath + " isRaw=" + isRaw);
             } catch (Throwable error) {
                 logError("send_image failed command=" + commandId, error);
                 sendCommandResult(
@@ -688,7 +689,8 @@ public final class WechatHook implements IXposedHookLoadPackage {
             String chatType,
             int seq,
             int total,
-            String chunk) {
+            String chunk,
+            boolean isRaw) {
         boolean group = "group".equals(chatType);
         boolean validTalker = group ? validGroupTalker(talker) : validPrivateTalker(talker);
         if (commandId.isEmpty() || !validTalker || total <= 0) {
@@ -718,10 +720,10 @@ public final class WechatHook implements IXposedHookLoadPackage {
         imageChunkNext.remove(commandId);
         final String base64 = buffer.toString();
         final String target = talker;
-        mainHandler.post(() -> completeImageSend(commandId, target, base64));
+        mainHandler.post(() -> completeImageSend(commandId, target, base64, isRaw));
     }
 
-    private static void completeImageSend(String commandId, String talker, String base64) {
+    private static void completeImageSend(String commandId, String talker, String base64, boolean isRaw) {
         try {
             java.io.File file = writeImageFile(base64);
             if (file == null) {
@@ -730,12 +732,12 @@ public final class WechatHook implements IXposedHookLoadPackage {
             }
             String version = installedWechatVersion();
             if ("8.0.78".equals(version) || "8.0.79".equals(version)) {
-                Wechat8078Adapter.sendImage(wechatClassLoader, talker, file.getAbsolutePath());
+                Wechat8078Adapter.sendImage(wechatClassLoader, talker, file.getAbsolutePath(), isRaw);
             } else {
                 throw new UnsupportedOperationException("Image send not supported on " + version);
             }
             sendCommandResult(commandId, true, "");
-            log("send_image accepted command=" + commandId + " path=" + file);
+            log("send_image accepted command=" + commandId + " path=" + file + " isRaw=" + isRaw);
         } catch (Throwable error) {
             logError("send_image failed command=" + commandId, error);
             sendCommandResult(commandId, false, error.getClass().getSimpleName());

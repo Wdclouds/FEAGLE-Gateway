@@ -191,35 +191,13 @@ final class Wechat8078Adapter {
                     final String methodName = param.method.getName();
                     XposedBridge.log("FEAGLE-Hook: l1." + methodName + " called: mediaId=" + param.args[0] + " arg1=" + (param.args.length > 1 ? param.args[1] : null));
 
-                    if ("keep_onUploadProgress".equals(methodName)) {
-                        try {
-                            final String mediaId = (String) param.args[0];
-                            Object info = param.args.length > 1 ? param.args[1] : null;
-                            if (info != null) {
-                                long total = XposedHelpers.getLongField(info, "field_toltalLength");
-                                long finished = XposedHelpers.getLongField(info, "field_finishedLength");
-                                // AES PKCS#7 block size is 16 bytes: finishedLength is plaintext size, totalLength is padded ciphertext size
-                                if (total > 0 && finished >= (total - 16)) {
-                                    XposedHelpers.setLongField(info, "field_finishedLength", total);
-                                    XposedBridge.log("FEAGLE-Hook: keep_onUploadProgress PKCS#7 padded finishedLength to " + total);
-                                }
-                            }
-                        } catch (Throwable t) {
-                            XposedBridge.log("FEAGLE-Hook: keep_onUploadProgress error: " + t.getMessage());
-                        }
-                    }
-
-                    if ("onUploadProgressChanged".equals(methodName) && param.args.length >= 3) {
-                        try {
-                            long finished = ((Number) param.args[1]).longValue();
-                            long total = ((Number) param.args[2]).longValue();
-                            if (total > 0 && finished >= (total - 16)) {
-                                param.args[1] = Long.valueOf(total);
-                                XposedBridge.log("FEAGLE-Hook: onUploadProgressChanged PKCS#7 padded finished to total=" + total);
-                            }
-                        } catch (Throwable t) {
-                            XposedBridge.log("FEAGLE-Hook: onUploadProgressChanged error: " + t.getMessage());
-                        }
+                    if ("keep_onUploadProgress".equals(methodName)
+                            || "onUploadProgressChanged".equals(methodName)) {
+                        // 只观测：原先这里按 PKCS#7 16 字节补齐伪造 finishedLength，
+                        // 会让上传大小与真实文件不一致，接收端校验失败。
+                        XposedBridge.log("FEAGLE-Hook: l1." + methodName
+                                + " mediaId=" + param.args[0]
+                                + " arg1=" + (param.args.length > 1 ? param.args[1] : null));
                     }
 
                     if ("onC2CUploadCompleted".equals(methodName) && param.args.length > 1 && param.args[1] != null) {
@@ -235,76 +213,23 @@ final class Wechat8078Adapter {
                     }
 
                     if ("v".equals(methodName) && param.args[0] != null) {
+                        // 只观测，绝不改写。8.0.79 原生 fileType=2（普通聊天图），
+                        // 强行改成 8 会以开放平台分区上传，而接收端仍按 2 去 CDN 取图，
+                        // 分区/鉴权不匹配 -> CDN 404 -> 微信显示“图片已过期或已被清理”。
+                        // 同时不再改写 field_sendmsg_viacdn / trysafecdn / force_aeskeycdn，
+                        // 也不再通过 resolveVfsStub 替换真实路径（软链接会让 CDN 取到错误内容）。
                         try {
                             Object m = param.args[0];
-                            try {
-                                int oldMft = XposedHelpers.getIntField(m, "field_fileType");
-                                XposedHelpers.setIntField(m, "field_fileType", 8);
-                                XposedHelpers.setBooleanField(m, "field_sendmsg_viacdn", true);
-                                XposedHelpers.setBooleanField(m, "field_trysafecdn", true);
-                                XposedHelpers.setBooleanField(m, "field_force_aeskeycdn", true);
-                                XposedBridge.log("FEAGLE-Hook: l1.v forced field_fileType=8 (was " + oldMft + ") field_trysafecdn=true");
-                            } catch (Throwable ignored) {}
-                            XposedBridge.log("FEAGLE-Hook: l1.v called for mediaId=" + XposedHelpers.getObjectField(m, "field_mediaId") + " sendmsg_viacdn=" + XposedHelpers.getBooleanField(m, "field_sendmsg_viacdn") + " trysafecdn=" + XposedHelpers.getBooleanField(m, "field_trysafecdn"));
-
-                            String fp = (String) XposedHelpers.getObjectField(m, "field_fullpath");
-                            String tp = (String) XposedHelpers.getObjectField(m, "field_thumbpath");
-                            String mp = (String) XposedHelpers.getObjectField(m, "field_midimgpath");
-                            Class<?> z6 = XposedHelpers.findClass("com.tencent.mm.vfs.z6", classLoader);
-                            String normFp = (String) XposedHelpers.callStaticMethod(z6, "i", fp, false);
-                            String normTp = (String) XposedHelpers.callStaticMethod(z6, "i", tp, false);
-                            String normMp = mp != null ? (String) XposedHelpers.callStaticMethod(z6, "i", mp, false) : null;
-
-                            String realFp = resolveVfsStub(normFp != null ? normFp : fp);
-                            String realTp = resolveVfsStub(normTp != null ? normTp : tp);
-                            String realMp = normMp != null ? resolveVfsStub(normMp) : null;
-
-                            alignFileTo16Bytes(realFp);
-                            alignFileTo16Bytes(realTp);
-                            if (realMp != null) alignFileTo16Bytes(realMp);
-
-                            if (realFp != null && new java.io.File(realFp).exists()) {
-                                XposedHelpers.setObjectField(m, "field_fullpath", realFp);
-                                XposedBridge.log("FEAGLE-Hook: updated field_fullpath to real file: " + realFp);
-                            }
-                            if (realTp != null && new java.io.File(realTp).exists()) {
-                                XposedHelpers.setObjectField(m, "field_thumbpath", realTp);
-                                XposedBridge.log("FEAGLE-Hook: updated field_thumbpath to real file: " + realTp);
-                            }
-                            if (realMp != null && new java.io.File(realMp).exists()) {
-                                XposedHelpers.setObjectField(m, "field_midimgpath", realMp);
-                                XposedBridge.log("FEAGLE-Hook: updated field_midimgpath to real file: " + realMp);
-                            }
-
-                            // Align all FileInfo items and sync lengths
-                            try {
-                                Object[] files = (Object[]) XposedHelpers.getObjectField(m, "p");
-                                if (files != null) {
-                                    for (Object fi : files) {
-                                        if (fi != null) {
-                                            String p = (String) XposedHelpers.getObjectField(fi, "path");
-                                            String normP = (String) XposedHelpers.callStaticMethod(z6, "i", p, false);
-                                            String realP = resolveVfsStub(normP != null ? normP : p);
-                                            alignFileTo16Bytes(realP);
-                                            if (realP != null) {
-                                                XposedHelpers.setObjectField(fi, "path", realP);
-                                                java.io.File f = new java.io.File(realP);
-                                                if (f.exists()) {
-                                                    XposedHelpers.setLongField(fi, "size", f.length());
-                                                    XposedBridge.log("FEAGLE-Hook: updated FileInfo path=" + realP + " size=" + f.length());
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (Throwable ignored) {}
-                            try {
-                                long curTotal = XposedHelpers.getLongField(m, "field_totalLen");
-                                int curMidLen = XposedHelpers.getIntField(m, "field_midFileLength");
-                                XposedBridge.log("FEAGLE-Hook: l1.v authentic field_totalLen=" + curTotal + " field_midFileLength=" + curMidLen);
-                            } catch (Throwable ignored) {}
+                            XposedBridge.log("FEAGLE-Hook: l1.v OBSERVE mediaId="
+                                    + XposedHelpers.getObjectField(m, "field_mediaId")
+                                    + " fileType=" + XposedHelpers.getIntField(m, "field_fileType")
+                                    + " sendmsg_viacdn=" + XposedHelpers.getBooleanField(m, "field_sendmsg_viacdn")
+                                    + " trysafecdn=" + XposedHelpers.getBooleanField(m, "field_trysafecdn")
+                                    + " force_aeskeycdn=" + XposedHelpers.getBooleanField(m, "field_force_aeskeycdn")
+                                    + " totalLen=" + XposedHelpers.getLongField(m, "field_totalLen")
+                                    + " fullpath=" + XposedHelpers.getObjectField(m, "field_fullpath"));
                         } catch (Throwable t) {
-                            XposedBridge.log("FEAGLE-Hook: VFS resolve error: " + t.getMessage());
+                            XposedBridge.log("FEAGLE-Hook: l1.v observe error: " + t.getMessage());
                         }
                     }
                 }
@@ -671,56 +596,6 @@ final class Wechat8078Adapter {
         throw new NoSuchMethodError("No sendText method found for WeChat 8.0.78/8.0.79");
     }
 
-    private static String resolveVfsStub(String path) {
-        if (path == null) return null;
-        java.io.File f = new java.io.File(path);
-        if (f.exists() && f.length() > 100) {
-            return f.getAbsolutePath();
-        }
-        // Check if path + "\u2316" exists
-        java.io.File stub = new java.io.File(path + "\u2316");
-        if (!stub.exists() && path.endsWith("\u2316")) {
-            stub = f;
-            path = path.substring(0, path.length() - 1);
-            f = new java.io.File(path);
-        }
-        if (stub.exists()) {
-            try {
-                java.io.FileInputStream fis = new java.io.FileInputStream(stub);
-                byte[] b = new byte[(int) stub.length()];
-                fis.read(b);
-                fis.close();
-                String uuid = new String(b, "UTF-8").trim();
-                java.io.File parent = stub.getParentFile();
-                while (parent != null) {
-                    java.io.File refDir = new java.io.File(parent, ".ref/d");
-                    if (refDir.exists()) {
-                        java.io.File realFile = new java.io.File(refDir, uuid);
-                        if (realFile.exists()) {
-                            XposedBridge.log("FEAGLE-Hook: resolved stub " + stub.getName() + " -> " + realFile.getAbsolutePath() + " (" + realFile.length() + " bytes)");
-                            try {
-                                if (f.exists()) f.delete();
-                                android.system.Os.symlink(realFile.getAbsolutePath(), path);
-                                XposedBridge.log("FEAGLE-Hook: symlinked " + realFile.getAbsolutePath() + " -> " + path);
-                            } catch (Throwable symErr) {
-                                XposedBridge.log("FEAGLE-Hook: symlink error: " + symErr.getMessage());
-                            }
-                            return realFile.getAbsolutePath();
-                        }
-                    }
-                    parent = parent.getParentFile();
-                }
-            } catch (Throwable t) {
-                XposedBridge.log("FEAGLE-Hook: resolveVfsStub error: " + t.getMessage());
-            }
-        }
-        return f.exists() ? f.getAbsolutePath() : path;
-    }
-
-    private static void alignFileTo16Bytes(String path) {
-        // No-op: Do not append null bytes to JPEG/wxgf files; Mars handles AES padding internally
-    }
-
     private static void advanceLifecycleToResumed(ClassLoader classLoader, Object lifecycle) {
         try {
             Class<?> stateClass = XposedHelpers.findClass("androidx.lifecycle.n", classLoader);
@@ -778,7 +653,7 @@ final class Wechat8078Adapter {
         }
     }
 
-    static void sendImage(ClassLoader classLoader, String talker, String imagePath)
+    static void sendImage(ClassLoader classLoader, String talker, String imagePath, boolean isRaw)
             throws Throwable {
         try {
             ensureCdnInit(classLoader);
@@ -813,11 +688,15 @@ final class Wechat8078Adapter {
 
             Object extra = XposedHelpers.newInstance(extraClass);
             XposedHelpers.setIntField(extra, "a", 5);
-            Object param = XposedHelpers.newInstance(paramClass, imagePath, 0, fromUser, talker, extra);
+            // 第二个构造参数是 compressType：0 = 普通压缩图，1 = 原图/高清图（HD）
+            int compressType = isRaw ? 1 : 0;
+            Object param = XposedHelpers.newInstance(paramClass, imagePath, compressType, fromUser, talker, extra);
             XposedHelpers.setObjectField(param, "k", "component_copy_send_img");
 
             Object flow = XposedHelpers.callMethod(service, "Oj", param);
-            XposedBridge.log("FEAGLE-Hook: 8.0.79 Oj sendImage dispatched to " + talker + " path=" + imagePath + " flow=" + flow);
+            XposedBridge.log("FEAGLE-Hook: 8.0.79 Oj sendImage dispatched to " + talker
+                    + " path=" + imagePath + " compressType=" + compressType
+                    + " (isRaw=" + isRaw + ") flow=" + flow);
 
             // 再次在 Oj 调用后推进生命周期，确保新注册的 SequenceLifecycleScope 观察者立即激活
             try {

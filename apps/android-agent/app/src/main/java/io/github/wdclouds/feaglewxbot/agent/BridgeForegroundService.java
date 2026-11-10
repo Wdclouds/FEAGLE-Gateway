@@ -707,8 +707,9 @@ public final class BridgeForegroundService extends Service {
         final String base64 = imageBase64;
         final String target = talker;
         final boolean isGroup = group;
+        final boolean raw = message.optBoolean("isRaw", false);
         new Thread(
-                () -> dispatchSendImage(sender, commandId, target, path, base64, isGroup),
+                () -> dispatchSendImage(sender, commandId, target, path, base64, isGroup, raw),
                 "feagle-send-img").start();
     }
 
@@ -718,12 +719,13 @@ public final class BridgeForegroundService extends Service {
             String talker,
             String imagePath,
             String imageBase64,
-            boolean group) {
+            boolean group,
+            boolean isRaw) {
         if (!imageBase64.isEmpty()) {
-            dispatchImageChunks(sender, commandId, talker, imageBase64, group);
+            dispatchImageChunks(sender, commandId, talker, imageBase64, group, isRaw);
             return;
         }
-        dispatchImageFile(sender, commandId, talker, imagePath, group);
+        dispatchImageFile(sender, commandId, talker, imagePath, group, isRaw);
     }
 
     /**
@@ -735,7 +737,8 @@ public final class BridgeForegroundService extends Service {
             String commandId,
             String talker,
             String imageBase64,
-            boolean group) {
+            boolean group,
+            boolean isRaw) {
         final int chunkChars = 100_000; // ≈200KB/次事务，远低于 Binder 1MB 上限
         final int total = (imageBase64.length() + chunkChars - 1) / chunkChars;
         try {
@@ -750,11 +753,12 @@ public final class BridgeForegroundService extends Service {
                 data.putInt("seq", seq);
                 data.putInt("total", total);
                 data.putString("chunk", imageBase64.substring(start, end));
+                data.putBoolean("is_raw", isRaw);
                 msg.setData(data);
                 sender.send(msg);
             }
             Log.i(TAG, "send_image dispatched chunks=" + total
-                    + " chars=" + imageBase64.length() + " to=" + talker);
+                    + " chars=" + imageBase64.length() + " to=" + talker + " isRaw=" + isRaw);
             bumpOutboundStat();
         } catch (RemoteException error) {
             hookMessenger = null;
@@ -768,7 +772,8 @@ public final class BridgeForegroundService extends Service {
             String commandId,
             String talker,
             String imagePath,
-            boolean group) {
+            boolean group,
+            boolean isRaw) {
         String targetPath = stageImageFile(imagePath);
         if (targetPath == null) {
             sendCommandError(commandId, "image_unreachable");
@@ -780,6 +785,7 @@ public final class BridgeForegroundService extends Service {
         data.putString("talker", talker);
         data.putString("image_path", targetPath);
         data.putString("chat_type", group ? "group" : "private");
+        data.putBoolean("is_raw", isRaw);
         msg.setData(data);
         try {
             sender.send(msg);
