@@ -12,6 +12,8 @@ final class AgentProtocol {
     static final int MSG_SELF_AVATAR = 9;
     static final int MSG_NOTICE_EVENT = 10;
     static final int MSG_SEND_IMAGE = 11;
+    // 图片 base64 分包（Binder 单次事务 ~1MB，微信进程自己落盘，无需 root）
+    static final int MSG_SEND_IMAGE_CHUNK = 12;
 
     static final String PREFS = "agent";
     static final String KEY_ENDPOINT = "endpoint";

@@ -13,6 +13,7 @@ import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -35,6 +36,11 @@ public final class WechatHook implements IXposedHookLoadPackage {
                     return size() > MAX_DEDUP;
                 }
             };
+    // 图片 base64 分包重组（Handler 在主线程收，无需加锁）
+    private static final Map<String, StringBuilder> imageChunks =
+            new HashMap<String, StringBuilder>();
+    private static final Map<String, Integer> imageChunkNext =
+            new HashMap<String, Integer>();
 
     private static Context appContext;
     private static ClassLoader wechatClassLoader;
@@ -607,6 +613,17 @@ public final class WechatHook implements IXposedHookLoadPackage {
                 sendWechatImage(commandId, talker, imagePath);
                 return;
             }
+            if (message.what == AgentProtocol.MSG_SEND_IMAGE_CHUNK) {
+                Bundle data = message.getData();
+                onImageChunk(
+                        data.getString("command_id", ""),
+                        data.getString("talker", "").trim(),
+                        data.getString("chat_type", "private"),
+                        data.getInt("seq", 0),
+                        data.getInt("total", 1),
+                        data.getString("chunk", ""));
+                return;
+            }
             if (message.what != AgentProtocol.MSG_SEND_TEXT) {
                 super.handleMessage(message);
                 return;
@@ -662,6 +679,98 @@ public final class WechatHook implements IXposedHookLoadPackage {
                         commandId, false, error.getClass().getSimpleName());
             }
         });
+    }
+
+    /** 收齐分包后由微信进程自己落盘（对 /data/data/com.tencent.mm 有写权限，不需要 root）。 */
+    private static void onImageChunk(
+            String commandId,
+            String talker,
+            String chatType,
+            int seq,
+            int total,
+            String chunk) {
+        boolean group = "group".equals(chatType);
+        boolean validTalker = group ? validGroupTalker(talker) : validPrivateTalker(talker);
+        if (commandId.isEmpty() || !validTalker || total <= 0) {
+            sendCommandResult(commandId, false, "invalid_command");
+            return;
+        }
+        Integer next = imageChunkNext.get(commandId);
+        int expected = next == null ? 0 : next;
+        if (seq != expected) {
+            imageChunks.remove(commandId);
+            imageChunkNext.remove(commandId);
+            log("send_image chunk out of order expect=" + expected + " got=" + seq);
+            sendCommandResult(commandId, false, "chunk_out_of_order");
+            return;
+        }
+        StringBuilder buffer = imageChunks.get(commandId);
+        if (buffer == null) {
+            buffer = new StringBuilder(Math.max(16, total * 64 * 1024));
+            imageChunks.put(commandId, buffer);
+        }
+        buffer.append(chunk);
+        imageChunkNext.put(commandId, seq + 1);
+        if (seq + 1 < total) {
+            return;
+        }
+        imageChunks.remove(commandId);
+        imageChunkNext.remove(commandId);
+        final String base64 = buffer.toString();
+        final String target = talker;
+        mainHandler.post(() -> completeImageSend(commandId, target, base64));
+    }
+
+    private static void completeImageSend(String commandId, String talker, String base64) {
+        try {
+            java.io.File file = writeImageFile(base64);
+            if (file == null) {
+                sendCommandResult(commandId, false, "image_write_failed");
+                return;
+            }
+            String version = installedWechatVersion();
+            if ("8.0.78".equals(version) || "8.0.79".equals(version)) {
+                Wechat8078Adapter.sendImage(wechatClassLoader, talker, file.getAbsolutePath());
+            } else {
+                throw new UnsupportedOperationException("Image send not supported on " + version);
+            }
+            sendCommandResult(commandId, true, "");
+            log("send_image accepted command=" + commandId + " path=" + file);
+        } catch (Throwable error) {
+            logError("send_image failed command=" + commandId, error);
+            sendCommandResult(commandId, false, error.getClass().getSimpleName());
+        }
+    }
+
+    /** base64 -> 微信进程自己的 cache 目录，发图时可直接读。 */
+    private static java.io.File writeImageFile(String base64) {
+        try {
+            byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+            if (bytes == null || bytes.length == 0) {
+                log("image base64 decoded to no bytes");
+                return null;
+            }
+            java.io.File dir = new java.io.File(appContext.getCacheDir(), "feagle_out");
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                log("image dir create failed: " + dir);
+                return null;
+            }
+            java.io.File out = new java.io.File(dir, "out_" + System.currentTimeMillis() + ".jpg");
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(out);
+            try {
+                fos.write(bytes);
+            } finally {
+                try {
+                    fos.close();
+                } catch (Throwable ignored) {
+                }
+            }
+            log("image written bytes=" + bytes.length + " path=" + out);
+            return out;
+        } catch (Throwable error) {
+            logError("image write failed", error);
+            return null;
+        }
     }
 
     private static void bindAgent() {

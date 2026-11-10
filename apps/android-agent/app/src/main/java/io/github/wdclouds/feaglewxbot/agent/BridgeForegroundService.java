@@ -719,22 +719,61 @@ public final class BridgeForegroundService extends Service {
             String imagePath,
             String imageBase64,
             boolean group) {
-        String targetPath;
-        try {
-            targetPath = !imageBase64.isEmpty()
-                    ? stageImageBase64(imageBase64)
-                    : stageImageFile(imagePath);
-        } catch (Throwable error) {
-            Log.e(TAG, "send_image staging failed: " + error.getMessage(), error);
-            sendCommandError(commandId, "image_stage_failed");
+        if (!imageBase64.isEmpty()) {
+            dispatchImageChunks(sender, commandId, talker, imageBase64, group);
             return;
         }
+        dispatchImageFile(sender, commandId, talker, imagePath, group);
+    }
+
+    /**
+     * base64 切成 Binder 能承载的小块，交给微信进程里的 Hook 自己落盘再发图。
+     * 这样 Agent 不需要 root，也不需要和微信共享可写目录。
+     */
+    private void dispatchImageChunks(
+            Messenger sender,
+            String commandId,
+            String talker,
+            String imageBase64,
+            boolean group) {
+        final int chunkChars = 100_000; // ≈200KB/次事务，远低于 Binder 1MB 上限
+        final int total = (imageBase64.length() + chunkChars - 1) / chunkChars;
+        try {
+            for (int seq = 0; seq < total; seq++) {
+                int start = seq * chunkChars;
+                int end = Math.min(imageBase64.length(), start + chunkChars);
+                Message msg = Message.obtain(null, AgentProtocol.MSG_SEND_IMAGE_CHUNK);
+                Bundle data = new Bundle();
+                data.putString("command_id", commandId);
+                data.putString("talker", talker);
+                data.putString("chat_type", group ? "group" : "private");
+                data.putInt("seq", seq);
+                data.putInt("total", total);
+                data.putString("chunk", imageBase64.substring(start, end));
+                msg.setData(data);
+                sender.send(msg);
+            }
+            Log.i(TAG, "send_image dispatched chunks=" + total
+                    + " chars=" + imageBase64.length() + " to=" + talker);
+            bumpOutboundStat();
+        } catch (RemoteException error) {
+            hookMessenger = null;
+            sendCommandError(commandId, "sender_disconnected");
+        }
+    }
+
+    /** 同机部署的兜底：imagePath 必须是微信进程读得到的路径。 */
+    private void dispatchImageFile(
+            Messenger sender,
+            String commandId,
+            String talker,
+            String imagePath,
+            boolean group) {
+        String targetPath = stageImageFile(imagePath);
         if (targetPath == null) {
-            // 以前这一步失败是静默的，Hook 会拿到一个不存在的路径去发，永远发不出去。
             sendCommandError(commandId, "image_unreachable");
             return;
         }
-
         Message msg = Message.obtain(null, AgentProtocol.MSG_SEND_IMAGE);
         Bundle data = new Bundle();
         data.putString("command_id", commandId);
@@ -744,36 +783,19 @@ public final class BridgeForegroundService extends Service {
         msg.setData(data);
         try {
             sender.send(msg);
-            int sentCount = prefs.getInt("stat_outbound_count", 0) + 1;
-            prefs.edit()
-                    .putInt("stat_outbound_count", sentCount)
-                    .putLong("stat_last_outbound_time", System.currentTimeMillis())
-                    .apply();
+            bumpOutboundStat();
         } catch (RemoteException error) {
             hookMessenger = null;
             sendCommandError(commandId, "sender_disconnected");
         }
     }
 
-    /** 把 Bridge 下发的 base64 写成文件，再搬进微信数据目录（微信进程读不到 Agent 私有目录）。 */
-    private String stageImageBase64(String imageBase64) throws Exception {
-        byte[] bytes = android.util.Base64.decode(imageBase64, android.util.Base64.DEFAULT);
-        if (bytes == null || bytes.length == 0) {
-            Log.e(TAG, "send_image base64 decoded to no bytes");
-            return null;
-        }
-        java.io.File dir = new java.io.File(getCacheDir(), "outbound");
-        if (!dir.isDirectory() && !dir.mkdirs()) {
-            Log.e(TAG, "send_image cannot create cache dir " + dir);
-            return null;
-        }
-        long stamp = System.currentTimeMillis();
-        java.io.File local = new java.io.File(dir, "out_" + stamp + ".jpg");
-        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(local)) {
-            fos.write(bytes);
-        }
-        Log.i(TAG, "send_image staged base64 bytes=" + bytes.length + " at " + local);
-        return copyIntoWechat(local.getAbsolutePath(), stamp);
+    private void bumpOutboundStat() {
+        int sentCount = prefs.getInt("stat_outbound_count", 0) + 1;
+        prefs.edit()
+                .putInt("stat_outbound_count", sentCount)
+                .putLong("stat_last_outbound_time", System.currentTimeMillis())
+                .apply();
     }
 
     /** 同机部署时的兜底：imagePath 指向本机文件才可用，否则直接报错而不是发空路径。 */
