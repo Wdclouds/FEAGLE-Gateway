@@ -428,6 +428,9 @@ export class AndroidWechatClient {
       case 'command_result':
         this.handleCommandResult(message);
         break;
+      case 'image_result':
+        this.handleImageResult(message);
+        break;
       case 'contacts_snapshot':
         this.handleContactsSnapshot(socket, message);
         break;
@@ -1466,6 +1469,19 @@ export class AndroidWechatClient {
       status: 'GROUP-SENT',
     });
     return { MsgID: commandId };
+  }
+
+  /** 两阶段 ACK 第二阶段：微信真实投递结果（Success / UploadError）。 */
+  handleImageResult(message) {
+    const commandId = String(message.commandId || '');
+    const ok = message.ok === true;
+    const result = String(message.result || '');
+    const localId = Number(message.localId || 0);
+    this.state.increment(ok ? 'imageDelivered' : 'imageFailed');
+    console.log(
+      `[Android] image_result command=${commandId} result=${result} ok=${ok} localId=${localId}`,
+    );
+    this.onImageResult?.({ commandId, ok, result, localId });
   }
 
   handleCommandResult(message) {

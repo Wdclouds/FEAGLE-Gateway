@@ -173,6 +173,9 @@ public final class BridgeForegroundService extends Service {
                 case AgentProtocol.MSG_COMMAND_RESULT:
                     forwardCommandResult(message.getData());
                     break;
+                case AgentProtocol.MSG_IMAGE_RESULT:
+                    forwardImageResult(message.getData());
+                    break;
                 default:
                     super.handleMessage(message);
             }
@@ -370,6 +373,20 @@ public final class BridgeForegroundService extends Service {
         put(event, "commandId", data.getString("command_id", ""));
         put(event, "ok", data.getBoolean("ok", false));
         put(event, "error", data.getString("error", ""));
+        String status = data.getString("status", "");
+        if (status != null && !status.isEmpty()) {
+            put(event, "status", status);
+        }
+        sendOrQueueTransient(event.toString());
+    }
+
+    /** 两阶段 ACK 第二阶段：微信真实投递结果（Success / UploadError）。 */
+    private void forwardImageResult(Bundle data) {
+        JSONObject event = baseEnvelope("image_result");
+        put(event, "commandId", data.getString("command_id", ""));
+        put(event, "ok", data.getBoolean("ok", false));
+        put(event, "result", data.getString("result", ""));
+        put(event, "localId", data.getLong("local_id", 0));
         sendOrQueueTransient(event.toString());
     }
 
