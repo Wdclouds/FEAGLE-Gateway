@@ -240,7 +240,7 @@ public class MainActivity extends Activity {
         title.setLayoutParams(titleLp);
 
         TextView version = new TextView(this);
-        version.setText("v0.8.0 minimal");
+        version.setText("v0.8.1 minimal");
         version.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         version.setTextColor(COLOR_TEXT_SEC);
         version.setTypeface(Typeface.MONOSPACE, Typeface.NORMAL);

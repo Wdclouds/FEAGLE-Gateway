@@ -52,8 +52,8 @@ $ManifestPath = Join-Path $ProjectRoot "tools\windows-android\checks\wechat-8.0.
 $ToolchainManifestPath = Join-Path $ProjectRoot "tools\windows-android\checks\windows-toolchain.json"
 $ToolsRoot = Join-Path $ProjectRoot ".tools"
 $AgentPackageName = "io.github.wdclouds.feaglewxbot.agent"
-$AgentVersionName = "0.8.0"
-$AgentVersionCode = 16
+$AgentVersionName = "0.8.1"
+$AgentVersionCode = 17
 $AgentBuildReceiptPath = Join-Path $ToolsRoot "agent-build.json"
 $script:AdbExecutable = $null
 $script:ApkSignerExecutable = $null
@@ -1286,11 +1286,11 @@ function Test-AndroidSource {
         if ($appBuild -notmatch "compileSdk 34") {
             $errors.Add("Android Agent compileSdk 必须为 34")
         }
-        if ($appBuild -notmatch "versionCode 16") {
-            $errors.Add("Android Agent versionCode 必须为 16")
+        if ($appBuild -notmatch "versionCode 17") {
+            $errors.Add("Android Agent versionCode 必须为 17")
         }
-        if ($appBuild -notmatch 'versionName "0\.8\.0"') {
-            $errors.Add("Android Agent versionName 必须为 0.8.0")
+        if ($appBuild -notmatch 'versionName "0\.8\.1"') {
+            $errors.Add("Android Agent versionName 必须为 0.8.1")
         }
     }
 

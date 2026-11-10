@@ -33,6 +33,23 @@ final class Wechat8078Adapter {
     private Wechat8078Adapter() {
     }
 
+    /**
+     * CDN 诊断日志开关。默认关闭，避免每次上传都 dump 全字段把 LSPosed 日志撑爆。
+     * 打开：adb shell setprop debug.feagle.cdn 1（重启微信生效）。
+     * 读取失败（SELinux/属性不可见）一律按关闭处理。
+     */
+    private static boolean cdnDebugEnabled() {
+        try {
+            Class<?> properties = Class.forName("android.os.SystemProperties");
+            java.lang.reflect.Method get = properties.getMethod(
+                    "get", String.class, String.class);
+            Object value = get.invoke(null, "debug.feagle.cdn", "0");
+            return "1".equals(value) || "true".equals(value);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     static void installInbound(ClassLoader classLoader) throws Throwable {
         Class<?> messageClass = XposedHelpers.findClass(MESSAGE_CLASS, classLoader);
         Class<?> addMsgClass = XposedHelpers.findClass(ADD_MSG_CLASS, classLoader);
@@ -153,7 +170,7 @@ final class Wechat8078Adapter {
                             @Override
                             protected void beforeHookedMethod(MethodHookParam param) {
                                 Object req = param.args[0];
-                                if (req != null) {
+                                if (req != null && cdnDebugEnabled()) {
                                     XposedBridge.log("FEAGLE-CDN startSSUpload" + dumpRequestFields(req));
                                 }
                             }
@@ -172,7 +189,7 @@ final class Wechat8078Adapter {
                             @Override
                             protected void beforeHookedMethod(MethodHookParam param) {
                                 Object req = param.args[0];
-                                if (req != null) {
+                                if (req != null && cdnDebugEnabled()) {
                                     XposedBridge.log("FEAGLE-CDN startC2CUpload" + dumpRequestFields(req));
                                 }
                             }
@@ -188,6 +205,9 @@ final class Wechat8078Adapter {
             XC_MethodHook uploadCbHook = new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!cdnDebugEnabled()) {
+                        return;
+                    }
                     final String methodName = param.method.getName();
                     XposedBridge.log("FEAGLE-Hook: l1." + methodName + " called: mediaId=" + param.args[0] + " arg1=" + (param.args.length > 1 ? param.args[1] : null));
 
@@ -242,6 +262,9 @@ final class Wechat8078Adapter {
             XposedBridge.hookAllMethods(l1Class, "keep_callFromJni", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!cdnDebugEnabled()) {
+                        return;
+                    }
                     try {
                         byte[] b = (byte[]) param.args[2];
                         if (b != null) {
@@ -257,6 +280,9 @@ final class Wechat8078Adapter {
             XposedBridge.hookAllMethods(pClass, "onChanged", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!cdnDebugEnabled()) {
+                        return;
+                    }
                     XposedBridge.log("FEAGLE-Hook: cdn.p.onChanged: " + param.args[0]);
                 }
             });
@@ -265,6 +291,9 @@ final class Wechat8078Adapter {
             XC_MethodHook cdnMgrHook = new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
+                    if (!cdnDebugEnabled()) {
+                        return;
+                    }
                     XposedBridge.log("FEAGLE-Hook: CdnManager." + param.method.getName() + " ret=" + param.getResult());
                 }
             };
