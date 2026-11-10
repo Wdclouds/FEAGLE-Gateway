@@ -41,6 +41,9 @@ public final class WechatHook implements IXposedHookLoadPackage {
             new HashMap<String, StringBuilder>();
     private static final Map<String, Integer> imageChunkNext =
             new HashMap<String, Integer>();
+    // 两阶段 ACK：已派发但还没拿到投递结果的 commandId（FIFO，按发送顺序对齐 ImgRetransmitLogic 回调）
+    private static final java.util.ArrayDeque<String> pendingImageCommands =
+            new java.util.ArrayDeque<String>();
 
     private static Context appContext;
     private static ClassLoader wechatClassLoader;
@@ -731,7 +734,8 @@ public final class WechatHook implements IXposedHookLoadPackage {
             } else {
                 throw new UnsupportedOperationException("Image send not supported on " + version);
             }
-            sendCommandResult(commandId, true, "");
+            markImageDispatched(commandId);
+            sendCommandResult(commandId, true, "", "dispatched");
             log("send_image accepted command=" + commandId + " path=" + file + " isRaw=" + isRaw);
         } catch (Throwable error) {
             logError("send_image failed command=" + commandId, error);
@@ -829,13 +833,58 @@ public final class WechatHook implements IXposedHookLoadPackage {
     }
 
     private static void sendCommandResult(String commandId, boolean ok, String error) {
+        sendCommandResult(commandId, ok, error, "");
+    }
+
+    /** status 为空时不写入；发图派发阶段传 "dispatched"（两阶段 ACK 的第一阶段）。 */
+    private static void sendCommandResult(
+            String commandId, boolean ok, String error, String status) {
         Message result = Message.obtain(null, AgentProtocol.MSG_COMMAND_RESULT);
         Bundle data = new Bundle();
         data.putString("command_id", commandId);
         data.putBoolean("ok", ok);
         data.putString("error", error);
+        if (status != null && !status.isEmpty()) {
+            data.putString("status", status);
+        }
         result.setData(data);
         sendToAgent(result);
+    }
+
+    /** 第二阶段相关：登记已派发、等待微信投递结果的 commandId。 */
+    private static void markImageDispatched(String commandId) {
+        synchronized (pendingImageCommands) {
+            pendingImageCommands.addLast(commandId);
+            while (pendingImageCommands.size() > 32) {
+                pendingImageCommands.pollFirst();
+            }
+        }
+    }
+
+    /**
+     * 微信 ImgRetransmitLogic 的最终结果（Success / UploadError）。
+     * 与派发顺序 FIFO 对齐，拿到结果后回传 commandId + localId。
+     */
+    static void onImageSendResult(String resultType, long localId) {
+        String commandId;
+        synchronized (pendingImageCommands) {
+            commandId = pendingImageCommands.pollFirst();
+        }
+        if (commandId == null) {
+            return;
+        }
+        String type = resultType == null ? "" : resultType;
+        boolean ok = type.toLowerCase(Locale.ROOT).contains("success");
+        Message result = Message.obtain(null, AgentProtocol.MSG_IMAGE_RESULT);
+        Bundle data = new Bundle();
+        data.putString("command_id", commandId);
+        data.putBoolean("ok", ok);
+        data.putString("result", type);
+        data.putLong("local_id", localId);
+        result.setData(data);
+        sendToAgent(result);
+        log("image_result command=" + commandId + " result=" + type
+                + " ok=" + ok + " localId=" + localId);
     }
 
     /** Bot 头像上报（2026-08-07）：启动延迟 5s 后读 SharedPreferences 拿自己 wxid，

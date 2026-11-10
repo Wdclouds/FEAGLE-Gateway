@@ -14,6 +14,8 @@ final class AgentProtocol {
     static final int MSG_SEND_IMAGE = 11;
     // 图片 base64 分包（Binder 单次事务 ~1MB，微信进程自己落盘，无需 root）
     static final int MSG_SEND_IMAGE_CHUNK = 12;
+    // 发图真实投递结果（Success / UploadError），用于两阶段 ACK 的第二阶段
+    static final int MSG_IMAGE_RESULT = 13;
 
     static final String PREFS = "agent";
     static final String KEY_ENDPOINT = "endpoint";

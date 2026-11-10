@@ -118,6 +118,9 @@ final class Wechat8078Adapter {
                         Object resultType = XposedHelpers.getObjectField(hObj, "a");
                         long localId = XposedHelpers.getLongField(hObj, "c");
                         XposedBridge.log("FEAGLE-Hook: rt5.i0 emit called! resultType=" + resultType + " localId=" + localId);
+                        // 两阶段 ACK 第二阶段：把最终投递结果回传给 Agent -> Bridge
+                        WechatHook.onImageSendResult(
+                                resultType == null ? "" : String.valueOf(resultType), localId);
                     } else {
                         XposedBridge.log("FEAGLE-Hook: rt5.i0 emit called with null");
                     }
