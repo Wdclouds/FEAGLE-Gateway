@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { resolveDataPath } from './paths.js';
 import { WebSocket, WebSocketServer } from 'ws';
 import { WECHAT_ADMIN_MODES } from './control-state.js';
@@ -279,7 +280,7 @@ export class AndroidWechatClient {
       host: this.host,
       port: this.port,
       path: this.path,
-      maxPayload: 10 * 1024 * 1024,
+      maxPayload: 24 * 1024 * 1024,
       verifyClient: ({ req }, done) => {
         const url = new URL(req.url || this.path, 'ws://localhost');
         if (url.searchParams.get('mode') === 'pair') {
@@ -1296,6 +1297,9 @@ export class AndroidWechatClient {
 
   async sendAgentImage(chatType, talker, imagePath) {
     const commandId = randomUUID();
+    // 跨机路径：平板访问不到 Bridge 所在机器的文件系统，图片必须随命令一起下发。
+    // imagePath 仅作为同机部署时的兜底字段保留。
+    const imageBase64 = await this.readImageBase64(imagePath);
     const response = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingCommands.delete(commandId);
@@ -1312,6 +1316,7 @@ export class AndroidWechatClient {
       chatType,
       talker,
       imagePath,
+      imageBase64,
     });
     if (!sent) {
       const pending = this.pendingCommands.get(commandId);
@@ -1322,6 +1327,41 @@ export class AndroidWechatClient {
     }
     await response;
     return commandId;
+  }
+
+  /**
+   * 读取待发送图片并转成 base64。
+   * 支持 http(s) URL、file:// URL 与本地路径（OneBot 的 file:// 形态很常见）。
+   * WebSocket 单条消息要整包进内存，超过 12 MB 直接报错而不是静默截断。
+   */
+  async readImageBase64(imagePath) {
+    if (!imagePath) throw new Error('send_image requires an image path or URL');
+    const maxBytes = 12 * 1024 * 1024;
+    let buffer;
+    if (/^https?:\/\//i.test(imagePath)) {
+      const response = await fetch(imagePath);
+      if (!response.ok) {
+        throw new Error(`send_image 图片下载失败: HTTP ${response.status} ${imagePath}`);
+      }
+      buffer = Buffer.from(await response.arrayBuffer());
+    } else if (imagePath.startsWith('base64://')) {
+      // OneBot 的 CQ 码里图片常是 base64://<data>，不是文件路径
+      buffer = Buffer.from(imagePath.slice('base64://'.length), 'base64');
+    } else {
+      const localPath = imagePath.startsWith('file://')
+        ? fileURLToPath(imagePath)
+        : imagePath;
+      buffer = await fs.readFile(localPath);
+    }
+    if (!buffer || buffer.length === 0) {
+      throw new Error(`send_image 图片为空: ${imagePath}`);
+    }
+    if (buffer.length > maxBytes) {
+      throw new Error(
+        `send_image 图片过大: ${buffer.length} bytes（上限 ${maxBytes}），无法通过 WebSocket 下发`,
+      );
+    }
+    return buffer.toString('base64');
   }
 
   async searchXhs(query) {

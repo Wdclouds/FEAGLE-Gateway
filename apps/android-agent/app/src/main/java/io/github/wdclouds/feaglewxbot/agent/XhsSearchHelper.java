@@ -109,7 +109,8 @@ public final class XhsSearchHelper {
         return list;
     }
 
-    public static void runSu(String command) {
+    /** 执行 root 命令并返回退出码（0 = 成功，-1 = 所有 su 路径都失败）。 */
+    public static int runSuResult(String command) {
         String[] suPaths = {"/system_ext/bin/su", "/system/bin/su", "/system/xbin/su", "su"};
         for (String su : suPaths) {
             try {
@@ -117,11 +118,16 @@ public final class XhsSearchHelper {
                 int code = p.waitFor();
                 Log.i(TAG, "runSu " + su + " code=" + code + " for: " + command);
                 if (code == 0) {
-                    return;
+                    return 0;
                 }
             } catch (Exception e) {
                 Log.w(TAG, "runSu failed with " + su + ": " + e.getMessage());
             }
         }
+        return -1;
+    }
+
+    public static void runSu(String command) {
+        runSuResult(command);
     }
 }

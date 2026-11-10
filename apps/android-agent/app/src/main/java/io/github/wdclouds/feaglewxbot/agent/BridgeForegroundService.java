@@ -687,10 +687,12 @@ public final class BridgeForegroundService extends Service {
         String commandId = message.optString("commandId", "");
         String talker = message.optString("talker", "").trim();
         String imagePath = message.optString("imagePath", "").trim();
+        String imageBase64 = message.optString("imageBase64", "").trim();
         String chatType = message.optString("chatType", "private");
         boolean group = "group".equals(chatType);
         boolean validTalker = group ? validGroupTalker(talker) : validPrivateTalker(talker);
-        if (commandId.isEmpty() || !validTalker || imagePath.isEmpty()) {
+        if (commandId.isEmpty() || !validTalker
+                || (imagePath.isEmpty() && imageBase64.isEmpty())) {
             sendCommandError(commandId, "invalid_image_command");
             return;
         }
@@ -700,15 +702,37 @@ public final class BridgeForegroundService extends Service {
             return;
         }
 
-        String targetPath = imagePath;
-        if (!imagePath.startsWith("/data/data/com.tencent.mm/")) {
-            try {
-                String safePath = "/data/data/com.tencent.mm/cache/out_" + System.currentTimeMillis() + ".jpg";
-                XhsSearchHelper.runSu("cp " + imagePath + " " + safePath + " && chown 10208:10208 " + safePath + " && chmod 666 " + safePath);
-                targetPath = safePath;
-            } catch (Throwable t) {
-                android.util.Log.e("FEAGLE-Agent", "copy image failed: " + t.getMessage());
-            }
+        // base64 解码与 su 拷贝都是大图耗时操作，放工作线程，避免阻塞 WebSocket 读线程。
+        final String path = imagePath;
+        final String base64 = imageBase64;
+        final String target = talker;
+        final boolean isGroup = group;
+        new Thread(
+                () -> dispatchSendImage(sender, commandId, target, path, base64, isGroup),
+                "feagle-send-img").start();
+    }
+
+    private void dispatchSendImage(
+            Messenger sender,
+            String commandId,
+            String talker,
+            String imagePath,
+            String imageBase64,
+            boolean group) {
+        String targetPath;
+        try {
+            targetPath = !imageBase64.isEmpty()
+                    ? stageImageBase64(imageBase64)
+                    : stageImageFile(imagePath);
+        } catch (Throwable error) {
+            Log.e(TAG, "send_image staging failed: " + error.getMessage(), error);
+            sendCommandError(commandId, "image_stage_failed");
+            return;
+        }
+        if (targetPath == null) {
+            // 以前这一步失败是静默的，Hook 会拿到一个不存在的路径去发，永远发不出去。
+            sendCommandError(commandId, "image_unreachable");
+            return;
         }
 
         Message msg = Message.obtain(null, AgentProtocol.MSG_SEND_IMAGE);
@@ -729,6 +753,52 @@ public final class BridgeForegroundService extends Service {
             hookMessenger = null;
             sendCommandError(commandId, "sender_disconnected");
         }
+    }
+
+    /** 把 Bridge 下发的 base64 写成文件，再搬进微信数据目录（微信进程读不到 Agent 私有目录）。 */
+    private String stageImageBase64(String imageBase64) throws Exception {
+        byte[] bytes = android.util.Base64.decode(imageBase64, android.util.Base64.DEFAULT);
+        if (bytes == null || bytes.length == 0) {
+            Log.e(TAG, "send_image base64 decoded to no bytes");
+            return null;
+        }
+        java.io.File dir = new java.io.File(getCacheDir(), "outbound");
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            Log.e(TAG, "send_image cannot create cache dir " + dir);
+            return null;
+        }
+        long stamp = System.currentTimeMillis();
+        java.io.File local = new java.io.File(dir, "out_" + stamp + ".jpg");
+        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(local)) {
+            fos.write(bytes);
+        }
+        Log.i(TAG, "send_image staged base64 bytes=" + bytes.length + " at " + local);
+        return copyIntoWechat(local.getAbsolutePath(), stamp);
+    }
+
+    /** 同机部署时的兜底：imagePath 指向本机文件才可用，否则直接报错而不是发空路径。 */
+    private String stageImageFile(String imagePath) {
+        if (imagePath.startsWith("/data/data/com.tencent.mm/")) {
+            return imagePath;
+        }
+        java.io.File source = new java.io.File(imagePath);
+        if (!source.isFile() || source.length() == 0) {
+            Log.e(TAG, "send_image source missing on device: " + imagePath);
+            return null;
+        }
+        return copyIntoWechat(imagePath, System.currentTimeMillis());
+    }
+
+    private String copyIntoWechat(String sourcePath, long stamp) {
+        String safePath = "/data/data/com.tencent.mm/cache/out_" + stamp + ".jpg";
+        int code = XhsSearchHelper.runSuResult("cp " + sourcePath + " " + safePath
+                + " && chown 10208:10208 " + safePath + " && chmod 666 " + safePath);
+        if (code != 0) {
+            Log.e(TAG, "send_image copy into WeChat data dir failed, code=" + code
+                    + " src=" + sourcePath);
+            return null;
+        }
+        return safePath;
     }
 
     private void handleXhsSearch(JSONObject message) {
