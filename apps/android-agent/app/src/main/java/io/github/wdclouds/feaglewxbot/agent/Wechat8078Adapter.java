@@ -687,11 +687,14 @@ final class Wechat8078Adapter {
             }
 
             Object extra = XposedHelpers.newInstance(extraClass);
-            XposedHelpers.setIntField(extra, "a", 5);
+            // 2 = 系统相册来源（原图只存在于相册场景），0 为兜底
+            XposedHelpers.setIntField(extra, "a", 2);
             // 第二个构造参数是 compressType：0 = 普通压缩图，1 = 原图/高清图（HD）
             int compressType = isRaw ? 1 : 0;
             Object param = XposedHelpers.newInstance(paramClass, imagePath, compressType, fromUser, talker, extra);
-            XposedHelpers.setObjectField(param, "k", "component_copy_send_img");
+            // 必须是相册发图标识；component_copy_send_img（剪贴板）与 fileType=1 冲突，
+            // 微信网关会判定业务场景不匹配并 RST 掉上传连接（表现为卡在 8KB）。
+            XposedHelpers.setObjectField(param, "k", "chatting_send_img");
 
             Object flow = XposedHelpers.callMethod(service, "Oj", param);
             XposedBridge.log("FEAGLE-Hook: 8.0.79 Oj sendImage dispatched to " + talker

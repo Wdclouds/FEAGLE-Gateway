@@ -104,12 +104,14 @@ export class GatewayClient {
           }
           this.state.increment('replied');
         } else if (item.img) {
+          // 每个条目可单独指定 isRaw；缺省按原图发送
+          const isRaw = item.isRaw !== false;
           if (String(batch.c).endsWith('@chatroom')) {
             const groupId = this.forwardEntity(batch.c, 'group');
-            await this.wechat.sendGroupImage(groupId, item.img);
+            await this.wechat.sendGroupImage(groupId, item.img, isRaw);
           } else {
             const userId = this.forwardEntity(batch.c, 'user');
-            await this.wechat.sendImage(userId, item.img);
+            await this.wechat.sendImage(userId, item.img, isRaw);
           }
           this.state.increment('replied');
         }
