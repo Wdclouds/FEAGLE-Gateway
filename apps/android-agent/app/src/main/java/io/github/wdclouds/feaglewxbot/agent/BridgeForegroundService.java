@@ -551,10 +551,6 @@ public final class BridgeForegroundService extends Service {
                 handleSendImage(message);
                 return;
             }
-            if ("xhs_search".equals(type)) {
-                handleXhsSearch(message);
-                return;
-            }
             sendCommandError(message.optString("commandId"), "unsupported_command");
         } catch (JSONException error) {
             sendCommandError("", "invalid_json");
@@ -804,55 +800,16 @@ public final class BridgeForegroundService extends Service {
                 .apply();
     }
 
-    /** 同机部署时的兜底：imagePath 指向本机文件才可用，否则直接报错而不是发空路径。 */
+    /**
+     * 同机部署的兜底：只有微信进程读得到的路径才可用。
+     * 正常链路走 base64 分片，由微信进程自己落盘，不经过这里。
+     */
     private String stageImageFile(String imagePath) {
         if (imagePath.startsWith("/data/data/com.tencent.mm/")) {
             return imagePath;
         }
-        java.io.File source = new java.io.File(imagePath);
-        if (!source.isFile() || source.length() == 0) {
-            Log.e(TAG, "send_image source missing on device: " + imagePath);
-            return null;
-        }
-        return copyIntoWechat(imagePath, System.currentTimeMillis());
-    }
-
-    private String copyIntoWechat(String sourcePath, long stamp) {
-        String safePath = "/data/data/com.tencent.mm/cache/out_" + stamp + ".jpg";
-        int code = XhsSearchHelper.runSuResult("cp " + sourcePath + " " + safePath
-                + " && chown 10208:10208 " + safePath + " && chmod 666 " + safePath);
-        if (code != 0) {
-            Log.e(TAG, "send_image copy into WeChat data dir failed, code=" + code
-                    + " src=" + sourcePath);
-            return null;
-        }
-        return safePath;
-    }
-
-    private void handleXhsSearch(JSONObject message) {
-        String commandId = message.optString("commandId", "xhs_" + System.currentTimeMillis());
-        String query = message.optString("query").trim();
-        if (query.isEmpty()) {
-            sendCommandError(commandId, "empty_query");
-            return;
-        }
-
-        new Thread(() -> {
-            try {
-                LogCollector.log("XHS", "开始小红书检索: " + query);
-                JSONObject result = XhsSearchHelper.search(query);
-                JSONObject event = baseEnvelope("command_result");
-                put(event, "commandId", commandId);
-                put(event, "action", "xhs_search");
-                put(event, "ok", result.optBoolean("ok", false));
-                put(event, "result", result);
-                sendOrQueueTransient(event.toString());
-                LogCollector.log("XHS", "小红书检索完成: " + query + " ok=" + result.optBoolean("ok", false));
-            } catch (Exception e) {
-                Log.e(TAG, "handleXhsSearch fail: " + e.getMessage(), e);
-                sendCommandError(commandId, "xhs_execution_error: " + e.getMessage());
-            }
-        }, "feagle-xhs-worker").start();
+        Log.e(TAG, "send_image path not readable by WeChat: " + imagePath);
+        return null;
     }
 
     private void sendCommandError(String commandId, String error) {

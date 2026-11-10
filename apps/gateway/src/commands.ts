@@ -484,43 +484,6 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
       await send('当前没有待裁决的审批。');
     },
   },
-
-  xhs: {
-    name: 'xhs',
-    opOnly: false,
-    description: '通过平板端极速检索小红书最新笔记并提炼信息差',
-    execute: async ({ arg, send }) => {
-      const query = arg.trim();
-      if (!query) {
-        await send('用法：/xhs <搜索关键词>\n例如: /xhs 冰岛旅游穿搭信息差\n或直接在聊天里 @Nox 搜小红书: xxx');
-        return;
-      }
-      await send(`🔍 正在调动平板小红书检索【${query}】，请稍候...`);
-      try {
-        const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 20000);
-        const res = await fetch('http://127.0.0.1:6192/gw/xhs/search', {
-          method: 'POST',
-          signal: ctl.signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query }),
-        });
-        clearTimeout(timer);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as any;
-        const result = data.result || {};
-        const notes = Array.isArray(result.notes) ? result.notes : [];
-        if (!notes.length) {
-          await send(`📕 【小红书检索 · ${query}】\n未检索到相关有效笔记，建议换个关键词试试～`);
-          return;
-        }
-        const bulletList = notes.slice(0, 5).map((n: string, i: number) => `${i + 1}. ${n}`).join('\n\n');
-        await send(`📕 【小红书实测提炼 · ${query}】\n\n${bulletList}\n\n💡 提示：以上内容由端侧平板原生通道无痕提取。`);
-      } catch (err: any) {
-        await send(`❌ 小红书检索失败: ${err.message || '超时或平板未连接'}`);
-      }
-    },
-  },
 };
 
 /** 解析文本是否匹配硬指令 */

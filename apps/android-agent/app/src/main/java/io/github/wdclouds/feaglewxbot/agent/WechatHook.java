@@ -54,11 +54,6 @@ public final class WechatHook implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam loadPackage)
             throws Throwable {
-        if ("com.xingin.xhs".equals(loadPackage.packageName)) {
-            XhsMaskHook.init(loadPackage);
-            return;
-        }
-
         if (!AgentProtocol.WECHAT_PACKAGE.equals(loadPackage.packageName)) {
             return;
         }

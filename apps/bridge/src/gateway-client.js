@@ -54,22 +54,6 @@ export class GatewayClient {
     };
     if (req.method === 'GET' && req.url === '/health') return json(200, { ok: true });
 
-    if (req.method === 'POST' && req.url === '/gw/xhs/search') {
-      let raw = '';
-      req.on('data', (c) => { raw += c; if (raw.length > 65536) req.destroy(); });
-      req.on('end', async () => {
-        try {
-          const { query } = JSON.parse(raw);
-          if (!query) return json(400, { error: 'empty_query' });
-          const resData = await this.wechat.searchXhs(query);
-          return json(200, { ok: true, result: resData });
-        } catch (err) {
-          return json(500, { ok: false, error: err.message });
-        }
-      });
-      return;
-    }
-
     if (req.method !== 'POST' || req.url !== OUTBOUND_PATH) return json(404, { error: 'not_found' });
 
     let raw = '';

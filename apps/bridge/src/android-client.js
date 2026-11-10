@@ -1367,36 +1367,6 @@ export class AndroidWechatClient {
     return buffer.toString('base64');
   }
 
-  async searchXhs(query) {
-    if (!this.socket || this.socket.readyState !== 1) {
-      throw new Error('Android Agent is not connected');
-    }
-    const commandId = randomUUID();
-    const response = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingCommands.delete(commandId);
-        this.state.patch('android', { pendingCommands: this.pendingCommands.size });
-        reject(new Error('Android xhs_search timed out'));
-      }, 25000);
-      timer.unref();
-      this.pendingCommands.set(commandId, { resolve, reject, timer });
-      this.state.patch('android', { pendingCommands: this.pendingCommands.size });
-    });
-    const sent = this.send(this.socket, {
-      type: 'xhs_search',
-      commandId,
-      query,
-    });
-    if (!sent) {
-      const pending = this.pendingCommands.get(commandId);
-      clearTimeout(pending?.timer);
-      this.pendingCommands.delete(commandId);
-      this.state.patch('android', { pendingCommands: this.pendingCommands.size });
-      throw new Error('Android Agent disconnected before xhs_search was sent');
-    }
-    return await response;
-  }
-
   async sendGroupText(onebotGroupId, text) {
     const groupId = String(onebotGroupId);
     const previous = this.groupSendQueues.get(groupId) || Promise.resolve();
