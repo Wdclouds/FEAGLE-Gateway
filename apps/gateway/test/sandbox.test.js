@@ -10,8 +10,11 @@ import {
   formatMemberProfileContext,
   getPersona,
   listPersonas,
+  initControlPlane,
 } from '../dist/control.js';
 import { config } from '../dist/config.js';
+
+initControlPlane();
 
 test('ensureChannelSandbox scaffolds persona.md, rules.md, tools.json, and members.json', () => {
   const testChatId = 'test_sandbox_12345@chatroom';
