@@ -242,7 +242,7 @@ test('Android transport forwards and replies to an allowlisted explicit group me
     sender: 'wxid_group_member',
     groupName: 'Android test group',
     displayName: 'Group member',
-    content: '@FEAGLE hello group',
+    content: '@Nox hello group',
     mentioned: true,
     createTime: Date.now(),
   })));

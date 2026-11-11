@@ -135,6 +135,7 @@ const dashboard = new DashboardServer({
   state,
   host: '0.0.0.0',
   port: Number(process.env.BOT_DASHBOARD_PORT || 6190),
+  idMap,
   imageStore: outboundImageStore,
   createPairingCode: (ttlMs) => wechat?.pairingStore?.createCode(ttlMs) || null,
   setTestMode: (enabled) => state.patch('testMode', { enabled: Boolean(enabled) }),

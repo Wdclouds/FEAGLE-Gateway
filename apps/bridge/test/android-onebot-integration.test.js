@@ -172,7 +172,7 @@ test('Android event reaches AstrBot as a OneBot v11 private message before ACK',
     sender: 'wxid_integration_member',
     groupName: 'Integration group',
     displayName: 'Integration member',
-    content: '@FEAGLE group hello',
+    content: '@Nox group hello',
     mentioned: true,
     createTime: Date.now(),
   }));

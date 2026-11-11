@@ -35,8 +35,14 @@ export const getSessionKey = (pkt: { c: string; u: string }): string =>
 export const toCompactLines = (pkts: WxInboundPkt[]): string =>
   pkts
     .map(
-      (p) =>
-        `${p.n}${p.q ? `(引:"${p.q.slice(0, 20)}")` : ''}: ${p.img ? '[图]' : ''}${p.t}`
+      (p) => {
+        let text = p.t || '';
+        if (text.includes('<msg><img') || text.includes('cdnthumburl')) {
+          text = text.replace(/<msg><img[\s\S]*?<\/msg>/g, '[图片]');
+        }
+        const q = p.q ? `(引:"${p.q.slice(0, 20)}")` : '';
+        return `${p.n}${q}: ${p.img ? '[图]' : ''}${text}`;
+      }
     )
     .join('\n');
 

@@ -490,7 +490,7 @@ export class AndroidWechatClient {
       accepted: true,
       heartbeatTimeoutMs: this.heartbeatTimeoutMs,
       ota: {
-        latestVersion: '0.7.0',
+        latestVersion: '0.8.4',
         downloadUrl: `http://${hostPart}:${dashPort}/api/device/download-agent`,
         checkUrl: `http://${hostPart}:${dashPort}/api/device/check-update`,
       },
@@ -1094,7 +1094,7 @@ export class AndroidWechatClient {
       // 回复授权：白名单 或 显式逐群设为 MENTION_ONLY（用户给该群设「艾特回复」= 已授权）
       const allowed = this.groupAllowlist.has(String(groupId))
         || this.groupModes[String(groupId)] === GROUP_CHAT_MODES.MENTION_ONLY;
-      const isMentionSelf = !content.startsWith('@') || /^@(Nox|秋白|FaSt_eAgle)(\s|$|[\u00a0\u2005])/i.test(content);
+      const isMentionSelf = !content.startsWith('@') || /^@Nox(\s|$|[  ])/i.test(content);
       if (!allowed || message.mentioned !== true || !isMentionSelf) {
         this.idMap.updateMessageReceipt(receiptId, 'DROPPED');
         this.state.increment('dropped');

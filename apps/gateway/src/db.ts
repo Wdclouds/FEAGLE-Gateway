@@ -9,6 +9,7 @@ mkdirSync(dirname(config.dbPath), { recursive: true });
 export const db = new DatabaseSync(config.dbPath);
 db.exec(`
 PRAGMA journal_mode = WAL;
+PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS sessions (
   chat_id     TEXT PRIMARY KEY,
   turn_lease  INTEGER NOT NULL DEFAULT 0,   -- 0=空闲 1=占用（同一 chat 同时只有一个任务）

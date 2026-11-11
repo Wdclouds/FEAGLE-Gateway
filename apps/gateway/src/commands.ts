@@ -16,6 +16,7 @@ import { quickBatch } from './sanitizer.js';
 import { toCompactLines, getSessionKey } from './protocol.js';
 import type { WxInboundPkt, WxOutboundBatch, MemoryHit } from './protocol.js';
 import { saveCheckpoint, loadCheckpoint, semanticSearch } from './mnemosyne.js';
+import { dialogManager } from './dialog.js';
 
 // 运行时动态配置状态（内存级，即时生效）
 export interface RuntimeChatSettings {
@@ -109,16 +110,27 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
   history: {
     name: 'history',
     opOnly: false,
-    description: '查看当前滑动窗口待发送给 LLM 的紧凑上下文',
+    description: '查看当前活跃会话的多轮问答记录与窗口缓冲',
     execute: async ({ pkt, getWindowHistory, send }) => {
       const sk = getSessionKey(pkt);
       const pkts = getWindowHistory(sk);
-      if (!pkts || !pkts.length) {
-        await send(`📭 当前窗口缓冲区为空（无残留等待对话）。`);
+      const turns = dialogManager.getTurns(pkt.c);
+      const parts: string[] = [];
+      if (turns.length > 0) {
+        const turnLines = turns
+          .map((t) => `${t.role === 'user' ? (t.sender || '用户') : '助手'}: ${t.content}`)
+          .join('\n');
+        parts.push(`💬 【多轮问答历史 (${turns.length} 条，15分钟自然衰减)】\n${turnLines}`);
+      }
+      if (pkts && pkts.length > 0) {
+        const lines = toCompactLines(pkts);
+        parts.push(`📜 【待处理窗口缓冲 (${pkts.length} 条)】\n${lines}`);
+      }
+      if (parts.length === 0) {
+        await send(`📭 当前无活跃多轮历史与待发缓冲。`);
         return;
       }
-      const lines = toCompactLines(pkts);
-      await send(`📜 【当前会话缓冲 (${pkts.length} 条)】\n${lines}`);
+      await send(parts.join('\n\n'));
     },
   },
 
@@ -136,11 +148,12 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
   new: {
     name: 'new',
     opOnly: true,
-    description: '开启全新会话，重置上下文',
+    description: '开启全新会话，重置上下文与时效',
     execute: async ({ pkt, send }) => {
       piManager.newSession();
       setLease(pkt.c, false);
-      await send('✨ 已开启新会话（上下文已清空，智能体已重置）。');
+      dialogManager.resetSession(pkt.c);
+      await send('✨ 已开启新会话（上下文与15分钟会话时效已重置，智能体已重新就绪）。');
     },
   },
 
@@ -153,9 +166,11 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
       const sess = getSession(pkt.c);
       const jobs = listJobs().filter((j) => j.enabled === 1);
       const pend = hasPendingConfirm(pkt.c);
+      const ttlSec = dialogManager.getRemainingTtlSec(pkt.c);
       const statusText =
         `👑 【OP 控制台状态】\n` +
         `• 网关引擎: 运行中 (HTTP 6185)\n` +
+        `• 会话时效: ${ttlSec > 0 ? `${ttlSec} 秒 (15分钟自动衰减)` : '已归档/新会话'}\n` +
         `• Pi 状态: ${p.alive ? `PID ${p.pid} (在线 ${Math.round(p.uptimeMs / 1000)}s)` : '已回收 (闲置待命)'}\n` +
         `• 全局任务: ${piManager.busy() ? '🔴 BUSY (运行中)' : '🟢 IDLE (空闲)'}\n` +
         `• 会话租约: ${getLease(pkt.c) ? '🔒 占用' : '🔓 空闲'}\n` +
@@ -484,11 +499,47 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
       await send('当前没有待裁决的审批。');
     },
   },
+
+  prune: {
+    name: 'prune',
+    opOnly: true,
+    description: '自动清理与归档已退出的微信群与无用测试会话 (/prune)',
+    execute: async ({ send }) => {
+      try {
+        const pruneUrl = `${config.bridgeOutUrl.replace(/\/outbound.*$/, '')}/api/conversations/prune`;
+        const res = await fetch(pruneUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-FEAGLE-Dashboard': '1',
+          },
+        });
+        if (res.ok) {
+          const data = await res.json() as any;
+          const r = data.result || {};
+          await send(
+            `🧹 【会话生命周期自动收敛完成】\n` +
+            `• 标记退群: ${r.markedExited || 0} 个群聊\n` +
+            `• 清理测试实体: ${r.testCleaned || 0} 个\n` +
+            `• 当前活跃会话: ${r.activeCount || 0} 个\n` +
+            `• 系统总实体数: ${r.totalCount || 0} 个\n\n` +
+            `💡 退出的群已自动从机器人活跃列表与推送管道中排除。`
+          );
+        } else {
+          await send(`⚠️ 清理请求失败，Bridge 返回状态码: ${res.status}`);
+        }
+      } catch (err: any) {
+        await send(`❌ 会话清理失败: ${err?.message || err}`);
+      }
+    },
+  },
 };
 
-/** 解析文本是否匹配硬指令 */
+/** 解析文本是否匹配硬指令（自动兼容群聊中带 @机器人 前缀的情况，如 "@Nox /status"、"@Nox /help" 或无空格 "@Nox/help"） */
 export function matchHardCommand(text: string): { cmdName: string; arg: string } | null {
-  const m = text.trim().match(/^\/([A-Za-z0-9_]+)\b\s*([\s\S]*)$/);
+  // 自动去除群聊中开头的 @提及（兼容有空格、无空格、微信特殊空格  ，确保指令前缀正确解析）
+  const cleanText = text.trim().replace(/^@[^\/\r\n]+[\s  ]*(?=\/[A-Za-z0-9_]+)/, '').trim();
+  const m = cleanText.match(/^\/([A-Za-z0-9_]+)\b\s*([\s\S]*)$/);
   if (!m) return null;
   const name = m[1].toLowerCase();
   const arg = m[2].trim();

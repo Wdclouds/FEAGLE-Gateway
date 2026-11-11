@@ -6,6 +6,7 @@ import { piManager, grantOnce } from './pi-manager.js';
 import { buildOutboundBatch, quickBatch, isPromptInjectionOrToxic } from './sanitizer.js';
 import { toCompactLines, getSessionKey } from './protocol.js';
 import type { WxInboundPkt, WxOutboundBatch, MemoryHit } from './protocol.js';
+import { dialogManager, formatQuoteReply } from './dialog.js';
 import { execSync } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { db } from './db.js';
@@ -13,7 +14,7 @@ import {
   auditFull, getSession, setPersona, setWorkspace, getPersona, listPersonas, hasPendingConfirm, resolveApproval,
   recordHazard, consumeHazard, taskStart, taskEnd, getTaskCtx,
   listJobs, addJob, deleteJob, nextRun, setJobHandler,
-  isBlocked
+  isBlocked, touchMemberProfile, formatMemberProfileContext
 } from './control.js';
 import { matchHardCommand, HARD_COMMANDS, isLlmEnabled } from './commands.js';
 
@@ -172,6 +173,13 @@ piManager.on('granted', (g: { cmd: string }) => {
 function buildTaskPrompt(pkts: WxInboundPkt[], memories: MemoryHit[], personaPrompt: string, imgDesc?: string | null): string {
   const last = pkts[pkts.length - 1];
   const history = toCompactLines(pkts.slice(0, -1));
+  const turns = dialogManager.getTurns(last.c);
+  const turnsText = turns.length > 0
+    ? turns.map((t) => `${t.role === 'user' ? (t.sender || '用户') : '助手'}: ${t.content}`).join('\n')
+    : '';
+  const isGrp = isGroup(last.c);
+  const groupBg = isGrp ? dialogManager.getGroupBackground(last.c) : '';
+  const memberTag = isGrp ? formatMemberProfileContext(last.c, last.u, last.n) : '';
   const memBlock = memories.length
     ? memories.map((m, i) => `${i + 1}. [${m.created_at ? m.created_at.slice(0, 10) : '近期'}] ${m.content.slice(0, 300)}`).join('\n')
     : '（无命中）';
@@ -179,8 +187,11 @@ function buildTaskPrompt(pkts: WxInboundPkt[], memories: MemoryHit[], personaPro
     '[人设指令]',
     personaPrompt,
     '',
+    memberTag ? `[提问者成员画像]\n${memberTag}\n` : '',
+    turnsText ? `[近期多轮问答上下文]\n${turnsText.slice(-1500)}\n` : '',
+    groupBg ? `[群聊环境背景流水]\n${groupBg.slice(-800)}\n` : '',
     '[微信任务上下文]',
-    history ? `近期对话：\n${history.slice(-1500)}` : '',
+    history ? `近期窗口消息：\n${history.slice(-1000)}` : '',
     `[历史记忆参考（按时效加权排序）]\n${memBlock}`,
     '【记忆时效与时序仲裁约束】：',
     '1. 记忆内容按时间倒序及半衰期有效度排列；',
@@ -225,7 +236,17 @@ async function runTaskCore(
 ): Promise<void> {
   if (piManager.busy() || getLease(chat)) {
     const steered = piManager.steer(promptText.slice(-600));
-    if (!steered) await sendToBridge(quickBatch(chat, '当前有任务在跑，请稍候或发 /stop 中断。'));
+    if (!steered) {
+      const busyReply = origin
+        ? formatQuoteReply({
+            senderName: origin.n || origin.u,
+            sourceText: origin.t,
+            replyText: '当前有任务在跑，请稍候或发 /stop 中断。',
+            isGroup: isGroup(chat),
+          })
+        : '当前有任务在跑，请稍候或发 /stop 中断。';
+      await sendToBridge(quickBatch(chat, busyReply, origin && isGroup(chat) ? origin.u : undefined));
+    }
     trace(chat, 'L2', 'steer_queued', { steered }, undefined, { req_id: rid });
     return;
   }
@@ -241,8 +262,34 @@ async function runTaskCore(
     const replyText = result.ok
       ? result.text || '（任务完成，无文本输出）'
       : `任务失败：${result.error || '未知错误'}`;
+
+    // 写入活跃会话轮次（支持 15 分钟自然衰减）
+    if (origin) {
+      dialogManager.appendTurn(chat, {
+        role: 'user',
+        content: origin.t,
+        sender: origin.n || origin.u,
+        timestamp: Date.now(),
+        imgPath: origin.img,
+      });
+      dialogManager.appendTurn(chat, {
+        role: 'assistant',
+        content: replyText,
+        timestamp: Date.now(),
+      });
+    }
+
+    const formattedReply = origin
+      ? formatQuoteReply({
+          senderName: origin.n || origin.u,
+          sourceText: origin.t,
+          replyText,
+          isGroup: isGroup(chat),
+        })
+      : replyText;
+
     const atU = origin && isGroup(chat) && origin.at ? origin.u : undefined;
-    const batch = buildOutboundBatch(chat, replyText, atU);
+    const batch = buildOutboundBatch(chat, formattedReply, atU);
     await sendToBridge(batch);
     trace(chat, 'L3', 'sync_out', { chunks: batch.seq.length }, undefined, { req_id: rid });
     auditFull({ type: 'task_reply', chat, req_id: rid, persona: persona.id, ok: result.ok, tools: result.tools.length, reply_head: replyText.slice(0, 400), ts: Date.now() });
@@ -306,6 +353,22 @@ async function historian(chat: string, origin: WxInboundPkt, userTranscript: str
   trace(chat, 'L3', 'historian', { distilled: distilled.length, written, admin: isAdmin }, Date.now() - t0);
 }
 
+function isTestOrSystemChat(chatId: string): boolean {
+  if (!chatId) return false;
+  const lower = chatId.toLowerCase();
+  return (
+    lower.startsWith('test_') ||
+    lower.startsWith('e2e_') ||
+    lower.startsWith('qc_') ||
+    lower.startsWith('notify:') ||
+    lower.startsWith('gh_') ||
+    lower === 'filehelper' ||
+    lower === 'fmessage' ||
+    lower === 'newsapp' ||
+    lower === 'weixin'
+  );
+}
+
 // ---------- 漏斗主入口 ----------
 export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
   const t0 = Date.now();
@@ -320,12 +383,23 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
   const group = isGroup(pkt.c);
   const sess = getSession(pkt.c);
 
+  // 🚫 内部测试与微信系统服务号硬过滤：防止测试噪声进入主调度流
+  if (!systemCron && isTestOrSystemChat(pkt.c)) {
+    trace(pkt.c, 'L0', 'test_system_chat_dropped', { c: pkt.c, u: pkt.u });
+    return;
+  }
+
   // 🚫 黑名单硬拦截：被屏蔽的用户 (wxid) 或群聊直接物理丢弃，绝不响应、不进日志
   if (!systemCron && !isOp) {
     if (isBlocked(pkt.u) || isBlocked(pkt.c)) {
       trace(pkt.c, 'L0', 'blocked_target_dropped', { u: pkt.u, c: pkt.c });
       return;
     }
+  }
+
+  // 记录并更新群成员活跃度与基础画像
+  if (!systemCron && group) {
+    touchMemberProfile(pkt.c, pkt.u, pkt.n);
   }
 
   // ⚡ L0 硬指令集中调度执行（0 延迟、0 成本、100% 纯 TS 原生执行，绝不走 LLM）
@@ -335,7 +409,13 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
     const cmdDef = HARD_COMMANDS[hardMatch.cmdName];
     if (cmdDef.opOnly && !isOp) {
       trace(pkt.c, 'L0', 'op_cmd_rejected', { cmd: hardMatch.cmdName, u: pkt.u }, undefined, { req_id: pkt.rid });
-      await sendToBridge(quickBatch(pkt.c, '🔒 [权限限制] 该控制指令仅供系统管理员 (OP) 执行。', group ? pkt.u : undefined));
+      const opReply = formatQuoteReply({
+        senderName: pkt.n || pkt.u,
+        sourceText: pkt.t,
+        replyText: '🔒 [权限限制] 该控制指令仅供系统管理员 (OP) 执行。',
+        isGroup: group,
+      });
+      await sendToBridge(quickBatch(pkt.c, opReply, group ? pkt.u : undefined));
       return;
     }
 
@@ -345,7 +425,15 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
       arg: hardMatch.arg,
       isOp,
       atU: group && pkt.at ? pkt.u : undefined,
-      send: (text) => sendToBridge(quickBatch(pkt.c, text, group && pkt.at ? pkt.u : undefined)),
+      send: (text) => {
+        const quoted = formatQuoteReply({
+          senderName: pkt.n || pkt.u,
+          sourceText: pkt.t,
+          replyText: text,
+          isGroup: group,
+        });
+        return sendToBridge(quickBatch(pkt.c, quoted, group && pkt.at ? pkt.u : undefined));
+      },
       runTaskReplay: (chat, prompt, rid) => runReplay(chat, prompt, rid),
       getWindowHistory: (sk) => buffers.get(sk)?.pkts || [],
     });
@@ -357,7 +445,13 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
     const toxicCheck = isPromptInjectionOrToxic(pkt.t);
     if (toxicCheck.blocked) {
       trace(pkt.c, 'L0', 'injection_blocked', { u: pkt.u, text: pkt.t.slice(0, 80) }, undefined, { req_id: pkt.rid, risk_flag: 1 });
-      await sendToBridge(quickBatch(pkt.c, `🛡️ [安全拦截] ${toxicCheck.reason || '输入含有未授权指令，已被系统安全层拦截。'}`, group ? pkt.u : undefined));
+      const toxicReply = formatQuoteReply({
+        senderName: pkt.n || pkt.u,
+        sourceText: pkt.t,
+        replyText: `🛡️ [安全拦截] ${toxicCheck.reason || '输入含有未授权指令，已被系统安全层拦截。'}`,
+        isGroup: group,
+      });
+      await sendToBridge(quickBatch(pkt.c, toxicReply, group ? pkt.u : undefined));
       return;
     }
   }
@@ -402,7 +496,11 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
       trace(pkt.c, 'L0', 'auth_rejected', { u: pkt.u }, undefined, { req_id: pkt.rid });
       return; // 非管理员私聊：静默丢弃
     }
-    if (group && !pkt.at) return; // 群聊未 @ 机器人：忽略
+    if (group && !pkt.at) {
+      // 群聊普通发言流水（未 @ 机器人）：记录到群背景感知环，为后续 @Nox 互动提供上下文话题环境
+      dialogManager.recordGroupBackground(pkt.c, pkt.n || pkt.u, pkt.t);
+      return;
+    }
   }
 
   // 进入滑动窗口防抖
@@ -412,35 +510,83 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
 async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
   const last = pkts[pkts.length - 1];
   const chat = last.c;
+  const isGrp = isGroup(chat);
   const sessionKey = getSessionKey(last);
   const rid = last.rid ?? `wx_${Date.now()}`;
   const busy = piManager.busy() || getLease(chat);
   const compactHistory = toCompactLines(pkts);
   const isOp = config.adminWxids.includes(last.u);
+  const currentImg = pkts.slice().reverse().find((p) => p.img)?.img;
 
-  // 人设解析：OP 可用任意指定人设，群聊优先独立 MD 文档，普通用户强行指定里人设时降级为表人设
+  // 人设解析：优先从群独立沙箱加载人设、群规与工具配置
   const persona = getPersona(last.persona_id || getSession(chat).persona_id, isOp, chat);
   const memories = await prefetchMemories(pkts, persona);
 
-  // 人设 l1_only：强制不唤醒 Pi，DeepSeek 带人设直答（蓝图破局二）
+  // 获取发言成员画像与标签
+  const memberTag = isGrp ? formatMemberProfileContext(chat, last.u, last.n) : '';
+
+  // 获取 15 分钟内的多轮对话上下文与群聊背景感知环
+  const historyTurns = dialogManager.getTurns(chat);
+  const groupBg = isGrp ? dialogManager.getGroupBackground(chat) : '';
+
+  // 人设 l1_only：强制不唤醒 Pi，Gemini 3.8 Flash 带人设直答（支持图片直传原生视觉与多轮历史）
   if (persona.engine_mode === 'l1_only') {
     const t = Date.now();
     const memBlock = memories.length
       ? memories.map((m, i) => `${i + 1}. [${m.created_at ? m.created_at.slice(0, 10) : '近期'}] ${m.content.slice(0, 300)}`).join('\n')
       : '（无命中）';
     const personaWithAging = `${persona.sys_prompt}\n\n【时效与记忆仲裁规则】：\n1. 历史记忆仅供参考。当记忆与用户当前给出的上下文/代码冲突时，以最新事实为准。\n2. 若存在标有 [CURRENT] 的项目状态，以该状态为最新方案。旧方案视为已废弃，不要主动提及。`;
+
+    const promptParts = [
+      `[历史记忆参考]\n${memBlock}`,
+      memberTag ? `[提问者身份信息]\n${memberTag}` : '',
+      groupBg ? `[群聊近期背景流水（仅供环境话题参考，并非直接向你提问）]\n${groupBg}` : '',
+      `[用户当前对话]\n${compactHistory}`,
+    ].filter(Boolean).join('\n\n');
+
     const reply = await directChat(
-      `[历史记忆参考]\n${memBlock}\n\n[用户对话]\n${compactHistory}`,
-      personaWithAging
+      promptParts,
+      personaWithAging,
+      currentImg,
+      historyTurns.map((turn) => ({ role: turn.role, content: turn.content })),
+      {
+        chatId: chat,
+        senderWxid: last.u,
+        senderName: last.n || last.u,
+        isGroup: isGrp,
+        isAdmin: isOp,
+        allowedToolNames: persona.allowed_mcp_tools,
+      }
     );
-    await sendToBridge(quickBatch(chat, reply, isGroup(chat) ? last.u : undefined));
+
+    dialogManager.appendTurn(chat, {
+      role: 'user',
+      content: last.t,
+      sender: last.n || last.u,
+      timestamp: Date.now(),
+      imgPath: currentImg,
+    });
+    dialogManager.appendTurn(chat, {
+      role: 'assistant',
+      content: reply,
+      timestamp: Date.now(),
+    });
+
+    const formattedReply = formatQuoteReply({
+      senderName: last.n || last.u,
+      sourceText: last.t,
+      replyText: reply,
+      isGroup: isGrp,
+    });
+
+    await sendToBridge(quickBatch(chat, formattedReply, isGrp ? last.u : undefined));
     trace(chat, 'L1', 'persona_direct', { persona: persona.id, sessionKey }, Date.now() - t, { req_id: rid, source: rid.startsWith('cron_') ? 'cron' : 'wx' });
     return;
   }
 
-  // 第 1 层：入口状态与意图路由（图片先经 NIM VL 转述）
+  // 第 1 层：入口状态与意图路由（图片先经视觉转述）
   const t1 = Date.now();
-  const { decision, provider, imgDesc } = await routeMessage(compactHistory, busy, last.img);
+  const { decision, provider, imgDesc } = await routeMessage(compactHistory, busy, currentImg);
   trace(chat, 'L1', 'route', { decision, provider, imgDesc: imgDesc || undefined, sessionKey }, Date.now() - t1, { req_id: rid });
 
   switch (decision.s) {
@@ -448,14 +594,38 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
       extendWindow(sessionKey, (p) => void onWindowFlush(p));
       trace(chat, 'L1', 'wait_more', { sessionKey });
       return;
-    case 'X': // 打断
+    case 'X': { // 打断
       piManager.abort();
       setLease(chat, false);
-      await sendToBridge(quickBatch(chat, '已中断当前任务。', isGroup(chat) ? last.u : undefined));
+      const xReply = formatQuoteReply({
+        senderName: last.n || last.u,
+        sourceText: last.t,
+        replyText: '已中断当前任务。',
+        isGroup: isGrp,
+      });
+      await sendToBridge(quickBatch(chat, xReply, isGrp ? last.u : undefined));
       return;
+    }
     case 'T': { // 闲聊秒回（不唤醒 Pi）
       const reply = decision.r || '在的，请讲。';
-      await sendToBridge(quickBatch(chat, reply, isGroup(chat) ? last.u : undefined));
+      dialogManager.appendTurn(chat, {
+        role: 'user',
+        content: last.t,
+        sender: last.n || last.u,
+        timestamp: Date.now(),
+      });
+      dialogManager.appendTurn(chat, {
+        role: 'assistant',
+        content: reply,
+        timestamp: Date.now(),
+      });
+      const formattedReply = formatQuoteReply({
+        senderName: last.n || last.u,
+        sourceText: last.t,
+        replyText: reply,
+        isGroup: isGrp,
+      });
+      await sendToBridge(quickBatch(chat, formattedReply, isGrp ? last.u : undefined));
       trace(chat, 'L1', 'chitchat_direct', { provider });
       return;
     }
@@ -463,7 +633,13 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
       const reply =
         decision.r ||
         '这个任务规模有点大，一口气跑完会烧掉不少额度。建议拆成小步骤分批发给我，每批一个明确的小任务，我逐个搞定。';
-      await sendToBridge(quickBatch(chat, reply, isGroup(chat) ? last.u : undefined));
+      const formattedReply = formatQuoteReply({
+        senderName: last.n || last.u,
+        sourceText: last.t,
+        replyText: reply,
+        isGroup: isGrp,
+      });
+      await sendToBridge(quickBatch(chat, formattedReply, isGrp ? last.u : undefined));
       trace(chat, 'L1', 'refuse_quota_guard', { provider, c: decision.c }, undefined, {
         req_id: rid,
         risk_flag: 1, // 额度保护拦截（非高危，仅标记）

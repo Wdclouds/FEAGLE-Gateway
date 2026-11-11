@@ -5,6 +5,22 @@ import { resolveDataPath } from './paths.js';
 
 const ID_FLOOR = 1_000_000_000;
 
+export function isTestOrSystemTalker(talker) {
+  if (!talker) return false;
+  const lower = String(talker).trim().toLowerCase();
+  return (
+    lower.startsWith('test_') ||
+    lower.startsWith('e2e_') ||
+    lower.startsWith('qc_') ||
+    lower.startsWith('notify:') ||
+    lower.startsWith('gh_') ||
+    lower === 'filehelper' ||
+    lower === 'fmessage' ||
+    lower === 'newsapp' ||
+    lower === 'weixin'
+  );
+}
+
 export class IdMap {
   constructor(path = resolveDataPath('wechat/mapping.sqlite')) {
     mkdirSync(dirname(path), { recursive: true });
@@ -45,6 +61,19 @@ export class IdMap {
         name TEXT NOT NULL,
         avatar_base64 TEXT NOT NULL DEFAULT '',
         member_count INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS contact_exclusions (
+        talker TEXT PRIMARY KEY,
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS conversation_settings (
+        talker TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived', 'ignored', 'exited')),
+        pinned INTEGER NOT NULL DEFAULT 0,
+        alias TEXT,
+        tags TEXT,
         updated_at TEXT NOT NULL
       );
     `);
@@ -146,18 +175,316 @@ export class IdMap {
   }
 
   /** 列出已知群实体（Dashboard 重启后恢复群列表用，group 实体已持久化）。 */
-  listGroups() {
-    const rows = this.db.prepare(`
-      SELECT onebot_id, protocol_id, nickname, last_seen_at
-      FROM entities WHERE kind = ?
-      ORDER BY last_seen_at DESC
-    `).all('group');
+  listGroups({ includeExited = false } = {}) {
+    let hasContactsGroup = false;
+    try {
+      const cRow = this.db.prepare("SELECT 1 FROM contacts WHERE kind = 'group' LIMIT 1").get();
+      if (cRow) hasContactsGroup = true;
+    } catch {}
+
+    let rows;
+    if (!includeExited && hasContactsGroup) {
+      rows = this.db.prepare(`
+        SELECT e.onebot_id, e.protocol_id, COALESCE(c.name, e.nickname) AS nickname, e.last_seen_at,
+               c.member_count, COALESCE(cs.status, 'active') AS status
+        FROM entities e
+        INNER JOIN contacts c ON c.talker = e.protocol_id AND c.kind = 'group'
+        LEFT JOIN conversation_settings cs ON cs.talker = e.protocol_id
+        LEFT JOIN contact_exclusions ce ON ce.talker = e.protocol_id
+        WHERE e.kind = 'group'
+          AND ce.talker IS NULL
+          AND (cs.status IS NULL OR cs.status != 'ignored')
+          AND NOT (e.protocol_id LIKE 'test_%' OR e.protocol_id LIKE 'e2e_%')
+        ORDER BY e.last_seen_at DESC
+      `).all();
+    } else {
+      rows = this.db.prepare(`
+        SELECT e.onebot_id, e.protocol_id, COALESCE(c.name, e.nickname) AS nickname, e.last_seen_at,
+               COALESCE(c.member_count, 0) AS member_count,
+               CASE
+                 WHEN ce.talker IS NOT NULL THEN 'ignored'
+                 WHEN cs.status IS NOT NULL THEN cs.status
+                 WHEN e.protocol_id LIKE 'test_%' OR e.protocol_id LIKE 'e2e_%' THEN 'test_internal'
+                 WHEN ? = 1 AND c.talker IS NULL THEN 'exited'
+                 ELSE 'active'
+               END AS status
+        FROM entities e
+        LEFT JOIN contacts c ON c.talker = e.protocol_id
+        LEFT JOIN conversation_settings cs ON cs.talker = e.protocol_id
+        LEFT JOIN contact_exclusions ce ON ce.talker = e.protocol_id
+        WHERE e.kind = 'group'
+        ORDER BY e.last_seen_at DESC
+      `).all(hasContactsGroup ? 1 : 0);
+    }
+
     return rows.map((row) => ({
       groupId: String(row.onebot_id),
       protocolId: String(row.protocol_id),
       name: String(row.nickname || '微信群').slice(0, 80),
+      memberCount: Number(row.member_count || 0),
       lastSeenAt: String(row.last_seen_at || ''),
+      status: String(row.status || 'active'),
+      isExited: row.status === 'exited',
     }));
+  }
+
+  /**
+   * 现代化 Web 前端统一会话列表接口。
+   * 自动聚合 entities、contacts、conversation_settings、contact_exclusions，
+   * 智能识别 active / exited / archived / ignored / test_internal 状态。
+   */
+  listConversations({
+    status = 'active',
+    kind = 'all',
+    search = '',
+    includeExited = false,
+    includeTest = false,
+    includeIgnored = false,
+    includeArchived = false,
+    limit = 100,
+  } = {}) {
+    let hasContactsGroup = false;
+    try {
+      const cRow = this.db.prepare("SELECT 1 FROM contacts WHERE kind = 'group' LIMIT 1").get();
+      if (cRow) hasContactsGroup = true;
+    } catch {}
+
+    const query = `
+      SELECT e.onebot_id, e.kind, e.protocol_id, e.nickname, e.last_seen_at,
+             c.name as contact_name, c.avatar_base64, c.member_count,
+             cs.status as custom_status, cs.pinned, cs.alias,
+             ce.reason as exclusion_reason
+      FROM entities e
+      LEFT JOIN contacts c ON c.talker = e.protocol_id
+      LEFT JOIN conversation_settings cs ON cs.talker = e.protocol_id
+      LEFT JOIN contact_exclusions ce ON ce.talker = e.protocol_id
+      WHERE e.kind IN ('group', 'user')
+      ORDER BY COALESCE(cs.pinned, 0) DESC, e.last_seen_at DESC
+    `;
+    const rows = this.db.prepare(query).all();
+
+    const result = [];
+    const counts = { total: 0, active: 0, exited: 0, archived: 0, ignored: 0 };
+
+    for (const row of rows) {
+      const talker = String(row.protocol_id);
+      const isGrp = row.kind === 'group';
+      const isTest = isTestOrSystemTalker(talker);
+
+      let convStatus = 'active';
+      if (row.exclusion_reason) {
+        convStatus = 'ignored';
+      } else if (row.custom_status) {
+        convStatus = row.custom_status;
+      } else if (isTest) {
+        convStatus = 'test_internal';
+      } else if (isGrp && hasContactsGroup && !row.contact_name) {
+        convStatus = 'exited';
+      }
+
+      counts.total += 1;
+      if (convStatus === 'active') counts.active += 1;
+      else if (convStatus === 'exited') counts.exited += 1;
+      else if (convStatus === 'archived') counts.archived += 1;
+      else if (convStatus === 'ignored') counts.ignored += 1;
+
+      if (!includeTest && convStatus === 'test_internal') continue;
+      if (kind !== 'all') {
+        const targetKind = kind === 'group' ? 'group' : 'user';
+        if (row.kind !== targetKind) continue;
+      }
+      if (status !== 'all') {
+        if (status === 'active') {
+          if (convStatus !== 'active') {
+            if (convStatus === 'exited' && !includeExited) continue;
+            if (convStatus === 'archived' && !includeArchived) continue;
+            if (convStatus === 'ignored' && !includeIgnored) continue;
+            if (convStatus !== 'exited' && convStatus !== 'archived' && convStatus !== 'ignored') continue;
+          }
+        } else if (convStatus !== status) {
+          continue;
+        }
+      }
+
+      const name = String(row.alias || row.contact_name || row.nickname || (isGrp ? '微信群' : '联系人')).slice(0, 80);
+      if (search) {
+        const q = search.trim().toLowerCase();
+        if (!name.toLowerCase().includes(q) && !talker.toLowerCase().includes(q)) {
+          continue;
+        }
+      }
+
+      result.push({
+        id: String(row.onebot_id),
+        talker,
+        kind: isGrp ? 'group' : 'private',
+        name,
+        alias: String(row.alias || ''),
+        avatarBase64: String(row.avatar_base64 || ''),
+        memberCount: Number(row.member_count || 0),
+        status: convStatus,
+        isExited: convStatus === 'exited',
+        isExcluded: convStatus === 'ignored' || Boolean(row.exclusion_reason),
+        pinned: Boolean(row.pinned),
+        lastSeenAt: String(row.last_seen_at || ''),
+      });
+
+      if (result.length >= limit) break;
+    }
+
+    return { conversations: result, counts };
+  }
+
+  /** 设置会话状态、备注或置顶 */
+  setConversationStatus(talker, status, { reason = '', alias = null, pinned = null } = {}) {
+    const validStatuses = new Set(['active', 'archived', 'ignored', 'exited']);
+    if (!validStatuses.has(status)) {
+      throw new TypeError(`Invalid status: ${status}. Must be one of: active, archived, ignored, exited`);
+    }
+    const t = String(talker).trim();
+    const now = new Date().toISOString();
+
+    const existing = this.db.prepare('SELECT * FROM conversation_settings WHERE talker = ?').get(t);
+    const finalPinned = pinned !== null ? (pinned ? 1 : 0) : (existing?.pinned || 0);
+    const finalAlias = alias !== null ? String(alias) : (existing?.alias || null);
+
+    this.db.prepare(`
+      INSERT INTO conversation_settings (talker, status, pinned, alias, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(talker) DO UPDATE SET
+        status = excluded.status,
+        pinned = excluded.pinned,
+        alias = excluded.alias,
+        updated_at = excluded.updated_at
+    `).run(t, status, finalPinned, finalAlias, now);
+
+    if (status === 'ignored') {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO contact_exclusions (talker, reason, created_at)
+        VALUES (?, ?, ?)
+      `).run(t, reason || 'Dashboard/API 排除', now);
+    } else {
+      this.db.prepare('DELETE FROM contact_exclusions WHERE talker = ?').run(t);
+    }
+
+    return {
+      talker: t,
+      status,
+      pinned: finalPinned === 1,
+      alias: finalAlias,
+      updatedAt: now,
+    };
+  }
+
+  /**
+   * 自动清理无用会话生命周期：
+   * 1. 扫描 groups，将不在 contacts 真实群表中的群自动标注为 exited；
+   * 2. 清理无历史消息的 e2e/qc/test 等测试内部 entity 记录；
+   * 3. 返回清理指标与当前活跃会话数。
+   */
+  pruneStaleEntities() {
+    let hasContactsGroup = false;
+    try {
+      const cRow = this.db.prepare("SELECT 1 FROM contacts WHERE kind = 'group' LIMIT 1").get();
+      if (cRow) hasContactsGroup = true;
+    } catch {}
+
+    let markedExited = 0;
+    const now = new Date().toISOString();
+
+    if (hasContactsGroup) {
+      const exitedGroups = this.db.prepare(`
+        SELECT e.protocol_id
+        FROM entities e
+        LEFT JOIN contacts c ON c.talker = e.protocol_id
+        WHERE e.kind = 'group' AND c.talker IS NULL
+          AND NOT (e.protocol_id LIKE 'test_%' OR e.protocol_id LIKE 'e2e_%')
+      `).all();
+
+      const markStmt = this.db.prepare(`
+        INSERT INTO conversation_settings (talker, status, updated_at)
+        VALUES (?, 'exited', ?)
+        ON CONFLICT(talker) DO UPDATE SET status = 'exited', updated_at = excluded.updated_at
+      `);
+
+      for (const g of exitedGroups) {
+        markStmt.run(g.protocol_id, now);
+        markedExited += 1;
+      }
+    }
+
+    const testEntities = this.db.prepare(`
+      SELECT onebot_id, protocol_id FROM entities
+      WHERE (protocol_id LIKE 'e2e_%' OR protocol_id LIKE 'qc_%' OR protocol_id LIKE 'test_%')
+    `).all();
+
+    let cleaned = 0;
+    const delEntity = this.db.prepare('DELETE FROM entities WHERE onebot_id = ?');
+    for (const te of testEntities) {
+      const hasMsg = this.db.prepare(`
+        SELECT 1 FROM messages
+        WHERE event_json LIKE ? OR event_json LIKE ? OR event_json LIKE ?
+        LIMIT 1
+      `).get(`%"${te.protocol_id}"%`, `%"group_id":${te.onebot_id}%`, `%"user_id":${te.onebot_id}%`);
+      if (!hasMsg) {
+        delEntity.run(te.onebot_id);
+        cleaned += 1;
+      }
+    }
+
+    const convInfo = this.listConversations({ status: 'active' });
+
+    return {
+      markedExited,
+      testCleaned: cleaned,
+      activeCount: convInfo.counts.active,
+      totalCount: convInfo.counts.total,
+    };
+  }
+
+  /** 获取单会话历史消息 */
+  getConversationMessages(kind, { onebotId = null, talker = null, limit = 50, beforeId = null } = {}) {
+    let targetOnebotId = onebotId;
+    if (!targetOnebotId && talker) {
+      const eRow = this.db.prepare('SELECT onebot_id FROM entities WHERE protocol_id = ?').get(talker);
+      if (eRow) targetOnebotId = Number(eRow.onebot_id);
+    }
+
+    let sql = 'SELECT onebot_message_id, wechat_message_id, event_json, created_at FROM messages WHERE 1=1';
+    const params = [];
+
+    if (beforeId) {
+      sql += ' AND onebot_message_id < ?';
+      params.push(Number(beforeId));
+    }
+
+    if (targetOnebotId) {
+      if (kind === 'group') {
+        sql += ' AND (event_json LIKE ? OR event_json LIKE ?)';
+        params.push(`%"group_id":${targetOnebotId}%`, `%"group_id":"${targetOnebotId}"%`);
+      } else {
+        sql += ' AND (event_json LIKE ? OR event_json LIKE ?)';
+        params.push(`%"user_id":${targetOnebotId}%`, `%"user_id":"${targetOnebotId}"%`);
+      }
+    } else if (talker) {
+      sql += ' AND event_json LIKE ?';
+      params.push(`%"${talker}"%`);
+    }
+
+    sql += ' ORDER BY onebot_message_id DESC LIMIT ?';
+    params.push(Math.min(limit, 200));
+
+    const rows = this.db.prepare(sql).all(...params);
+    return rows.map((r) => {
+      let event = null;
+      try { event = JSON.parse(r.event_json); } catch {}
+      return {
+        messageId: Number(r.onebot_message_id),
+        wechatMessageId: String(r.wechat_message_id),
+        createdAt: String(r.created_at),
+        event,
+      };
+    });
   }
 
   contacts(kind = 'user') {

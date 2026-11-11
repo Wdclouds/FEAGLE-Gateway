@@ -59,7 +59,11 @@ export class DashboardServer {
     setGroupChatConfig = async () => state.snapshot(),
     setGroupChatMode = async () => state.snapshot(),
     refreshContacts = async () => ({}),
-    getConversationMessages = async () => ({ messages: [] }),
+    idMap = null,
+    listConversations = null,
+    setConversationStatus = null,
+    pruneConversations = null,
+    getConversationMessages = null,
     mnemosyne = null,
     resolveChannelFolder = null,
     getConversationLogs = async () => [],
@@ -90,7 +94,11 @@ export class DashboardServer {
     this.setGroupChatConfig = setGroupChatConfig;
     this.setGroupChatMode = setGroupChatMode;
     this.refreshContacts = refreshContacts;
-    this.getConversationMessages = getConversationMessages;
+    this.idMap = idMap;
+    this.listConversations = listConversations || ((opts) => idMap?.listConversations(opts) || { conversations: [], counts: {} });
+    this.setConversationStatus = setConversationStatus || ((talker, status, opts) => idMap?.setConversationStatus(talker, status, opts));
+    this.pruneConversations = pruneConversations || (() => idMap?.pruneStaleEntities() || {});
+    this.getConversationMessages = getConversationMessages || ((kind, opts) => idMap?.getConversationMessages(kind, opts) || []);
     this.mnemosyne = mnemosyne;
     this.resolveChannelFolder = resolveChannelFolder;
     this.getProbeRouter = getProbeRouter;
@@ -739,7 +747,7 @@ export class DashboardServer {
     // ---- GET /api/device/check-update (OTA 版本检查) ----
     if (url.pathname === '/api/device/check-update') {
       const clientVer = String(url.searchParams.get('version') || '0.0.0').trim();
-      const latestVer = '0.8.0';
+      const latestVer = '0.8.4';
       const hasUpdate = clientVer !== latestVer;
       response.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -750,7 +758,7 @@ export class DashboardServer {
         currentVersion: clientVer,
         latestVersion: latestVer,
         downloadUrl: '/api/device/download-agent',
-        releaseNotes: 'FEAGLE Gateway Driver 0.8.0: 支持扫码直接下载、免密配对与微信 8.0.78 深度适配',
+        releaseNotes: 'FEAGLE Gateway Driver 0.8.4: 采用 Linux 原生 ParcelFileDescriptor 零内存零分片直传，彻底消除 Binder 队头阻塞',
       }));
       return;
     }
@@ -884,6 +892,147 @@ export class DashboardServer {
         });
         response.end(JSON.stringify({ error: err?.message || String(err) }));
       }
+      return;
+    }
+
+    // ---- GET /api/conversations（现代化统一会话列表聚合接口）----
+    if (url.pathname === '/api/conversations') {
+      if (request.method !== 'GET') {
+        response.writeHead(405, { Allow: 'GET', 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+      }
+      const status = url.searchParams.get('status') || 'active';
+      const kind = url.searchParams.get('kind') || 'all';
+      const search = url.searchParams.get('search') || '';
+      const includeExited = url.searchParams.get('includeExited') === 'true' || url.searchParams.get('includeExited') === '1';
+      const includeTest = url.searchParams.get('includeTest') === 'true' || url.searchParams.get('includeTest') === '1';
+      const includeIgnored = url.searchParams.get('includeIgnored') === 'true' || url.searchParams.get('includeIgnored') === '1';
+      const includeArchived = url.searchParams.get('includeArchived') === 'true' || url.searchParams.get('includeArchived') === '1';
+      const limit = Math.min(Number(url.searchParams.get('limit') || 100) || 100, 500);
+
+      try {
+        const data = this.listConversations({
+          status,
+          kind,
+          search,
+          includeExited,
+          includeTest,
+          includeIgnored,
+          includeArchived,
+          limit,
+        });
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify({ ok: true, ...data }));
+      } catch (error) {
+        response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: String(error?.message || error).slice(0, 200) }));
+      }
+      return;
+    }
+
+    // ---- PUT/POST /api/conversations/status（会话状态、备注、置顶设置）----
+    if (url.pathname === '/api/conversations/status') {
+      if (request.method !== 'PUT' && request.method !== 'POST') {
+        response.writeHead(405, { Allow: 'PUT, POST', 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+      }
+      if (!this.authorizeMutation(request, response)) return;
+      this.readJson(request, response, 16_384, (payload) => {
+        const talker = String(payload.talker || '').trim();
+        const status = String(payload.status || 'active').trim();
+        if (!talker) {
+          response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          response.end(JSON.stringify({ error: 'talker is required' }));
+          return;
+        }
+        try {
+          const res = this.setConversationStatus(talker, status, {
+            reason: payload.reason,
+            alias: payload.alias,
+            pinned: payload.pinned,
+          });
+          response.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+          });
+          response.end(JSON.stringify({ ok: true, conversation: res }));
+        } catch (error) {
+          response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          response.end(JSON.stringify({ error: String(error?.message || error).slice(0, 200) }));
+        }
+      });
+      return;
+    }
+
+    // ---- POST /api/conversations/prune（自动清理/退群扫描与收敛）----
+    if (url.pathname === '/api/conversations/prune') {
+      if (request.method !== 'POST') {
+        response.writeHead(405, { Allow: 'POST', 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+      }
+      if (!this.authorizeMutation(request, response)) return;
+      try {
+        const result = this.pruneConversations();
+        if (this.idMap && typeof this.state?.restoreGroups === 'function') {
+          try {
+            this.state.restoreGroups(this.idMap.listGroups());
+          } catch {}
+        }
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify({ ok: true, result }));
+      } catch (error) {
+        response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: String(error?.message || error).slice(0, 200) }));
+      }
+      return;
+    }
+
+    // ---- POST /api/conversations/batch（批量调整状态）----
+    if (url.pathname === '/api/conversations/batch') {
+      if (request.method !== 'POST') {
+        response.writeHead(405, { Allow: 'POST', 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'Method not allowed' }));
+        return;
+      }
+      if (!this.authorizeMutation(request, response)) return;
+      this.readJson(request, response, 65_536, (payload) => {
+        const talkers = Array.isArray(payload.talkers) ? payload.talkers : [];
+        const action = String(payload.action || 'ignore').trim();
+        const reason = String(payload.reason || '').trim();
+
+        const statusMap = {
+          ignore: 'ignored',
+          archive: 'archived',
+          activate: 'active',
+          exit: 'exited',
+        };
+        const targetStatus = statusMap[action] || action;
+
+        let updated = 0;
+        for (const t of talkers) {
+          const talkerStr = String(t || '').trim();
+          if (!talkerStr) continue;
+          try {
+            this.setConversationStatus(talkerStr, targetStatus, { reason });
+            updated += 1;
+          } catch {}
+        }
+
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify({ ok: true, updatedCount: updated }));
+      });
       return;
     }
 

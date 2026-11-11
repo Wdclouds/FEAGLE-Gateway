@@ -272,3 +272,106 @@ test('dashboard settings API hides secrets and protects mutations', async (t) =>
   assert.equal(accepted.status, 202);
   assert.equal((await accepted.json()).settings.quietHours, '01:00-06:00');
 });
+
+test('dashboard exposes conversations REST API with filtering, status mutation, batch, and prune', async (t) => {
+  const state = new RuntimeState();
+  const convDb = [
+    { id: '10001', talker: 'group_active@chatroom', kind: 'group', name: '活跃群', status: 'active', pinned: true },
+    { id: '10002', talker: 'group_exited@chatroom', kind: 'group', name: '退出群', status: 'exited', pinned: false },
+    { id: '10003', talker: 'wxid_test_contact', kind: 'private', name: '测试号', status: 'test_internal', pinned: false },
+  ];
+  let prunedCount = 0;
+  const statusUpdates = [];
+
+  const dashboard = new DashboardServer({
+    state,
+    host: '127.0.0.1',
+    port: 0,
+    listConversations({ status = 'active', includeExited = false, includeTest = false }) {
+      const filtered = convDb.filter((c) => {
+        if (!includeTest && c.status === 'test_internal') return false;
+        if (!includeExited && c.status === 'exited' && status === 'active') return false;
+        if (status !== 'all' && c.status !== status) return false;
+        return true;
+      });
+      return {
+        conversations: filtered,
+        counts: { total: convDb.length, active: 1, exited: 1, archived: 0, ignored: 0 },
+      };
+    },
+    setConversationStatus(talker, status, opts) {
+      statusUpdates.push({ talker, status, ...opts });
+      return { talker, status, ...opts };
+    },
+    pruneConversations() {
+      prunedCount += 1;
+      return { markedExited: 1, testCleaned: 1, activeCount: 1, totalCount: 2 };
+    },
+  });
+
+  await dashboard.start();
+  t.after(() => dashboard.stop());
+  const { port } = dashboard.server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  // 1. GET /api/conversations (默认 active)
+  const listRes = await fetch(`${base}/api/conversations`);
+  assert.equal(listRes.status, 200);
+  const listJson = await listRes.json();
+  assert.equal(listJson.ok, true);
+  assert.equal(listJson.conversations.length, 1);
+  assert.equal(listJson.conversations[0].talker, 'group_active@chatroom');
+  assert.equal(listJson.counts.active, 1);
+
+  // 2. PUT /api/conversations/status (鉴权与状态修改)
+  const unauthRes = await fetch(`${base}/api/conversations/status`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ talker: 'group_active@chatroom', status: 'ignored' }),
+  });
+  assert.equal(unauthRes.status, 403);
+
+  const authRes = await fetch(`${base}/api/conversations/status`, {
+    method: 'PUT',
+    headers: mutationHeaders,
+    body: JSON.stringify({
+      talker: 'group_active@chatroom',
+      status: 'ignored',
+      reason: '已屏蔽测试群',
+      pinned: false,
+    }),
+  });
+  assert.equal(authRes.status, 200);
+  const authJson = await authRes.json();
+  assert.equal(authJson.ok, true);
+  assert.equal(authJson.conversation.status, 'ignored');
+  assert.equal(authJson.conversation.reason, '已屏蔽测试群');
+
+  // 3. POST /api/conversations/prune
+  const pruneRes = await fetch(`${base}/api/conversations/prune`, {
+    method: 'POST',
+    headers: mutationHeaders,
+  });
+  assert.equal(pruneRes.status, 200);
+  const pruneJson = await pruneRes.json();
+  assert.equal(pruneJson.ok, true);
+  assert.equal(pruneJson.result.markedExited, 1);
+  assert.equal(prunedCount, 1);
+
+  // 4. POST /api/conversations/batch
+  const batchRes = await fetch(`${base}/api/conversations/batch`, {
+    method: 'POST',
+    headers: mutationHeaders,
+    body: JSON.stringify({
+      talkers: ['wxid_1', 'wxid_2'],
+      action: 'ignore',
+      reason: '批量静音',
+    }),
+  });
+  assert.equal(batchRes.status, 200);
+  const batchJson = await batchRes.json();
+  assert.equal(batchJson.ok, true);
+  assert.equal(batchJson.updatedCount, 2);
+  assert.equal(statusUpdates.length, 3);
+});
+

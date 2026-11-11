@@ -2,7 +2,7 @@
  * Control Plane v2.0 —— 审批双通道 / Persona / Cron / 审计
  * 零新增容器、零新增依赖（node:sqlite + fetch）。
  */
-import { appendFileSync, existsSync, statSync, renameSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, statSync, renameSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { config, isGroup } from './config.js';
 import { db, trace } from './db.js';
@@ -79,23 +79,40 @@ export interface Persona {
 
 const DEFAULT_PERSONAS: Persona[] = [
   {
-    id: 'architect', name: '架构师 (里人设)', engine_mode: 'auto', allow_shell: true, allowed_mcp_tools: ['*'], op_only: true,
-    sys_prompt: '你是一位严谨务实的资深架构师与全栈工程师。这是面向管理员的里人设：直接输出技术结论、执行代码、排错并给出最小 diff，不需要客套。',
+    id: 'nox',
+    name: 'Nox (通用智能助手)',
+    engine_mode: 'auto',
+    allow_shell: true,
+    allowed_mcp_tools: ['*'],
+    op_only: false,
+    sys_prompt: '你是用户的专属智能助手 Nox。性格敏锐、聪颖、真诚、温和中带点灵巧。在交流中直击要点，表达自然生动，不做假大空的套话。根据提问者身份与指令提供精准高效的解答与执行协助。',
   },
   {
-    id: 'daily_assistant', name: '灵动助手 (表面人设)', engine_mode: 'l1_only', allow_shell: false,
-    allowed_mcp_tools: ['palace_summon', 'memories_search', 'memories_list', 'memories_stats', 'wiki_search', 'tmt_recall', 'palace_status'],
-    sys_prompt: '你是用户的微信智能管家与日常助手（面向正常用户的表人设）。性格温和聪慧、聊天亲切自然，可以回答日常问题与查阅公开记忆，不展示底层系统细节，不执行任何服务器命令。',
+    id: 'daily_assistant',
+    name: 'Nox (日常对话模式)',
+    engine_mode: 'l1_only',
+    allow_shell: false,
+    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search', 'group_remind', 'palace_memo'],
+    op_only: false,
+    sys_prompt: '你是智能助手 Nox。性格敏锐、温和聪慧。聊天自然亲切，专注于日常解答、总结归纳与群内互动，不执行服务器底层变更。',
   },
   {
-    id: 'secretary', name: '精简秘书 (表面人设)', engine_mode: 'l1_only', allow_shell: false,
-    allowed_mcp_tools: ['palace_summon', 'memories_search', 'memories_list', 'memories_stats', 'wiki_search', 'tmt_recall', 'palace_status'],
-    sys_prompt: '你是精简秘书：回答克制精炼（尽量三句话内），只做信息检索与日程对话，严禁任何写操作或 Shell 执行。',
+    id: 'secretary',
+    name: '精简秘书',
+    engine_mode: 'l1_only',
+    allow_shell: false,
+    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search'],
+    op_only: false,
+    sys_prompt: '你是精简秘书：回答克制精炼（尽量三句话内），协助信息检索与日程对话。',
   },
   {
-    id: 'readonly_auditor', name: '只读审计员 (里人设)', engine_mode: 'l1_only', allow_shell: false, op_only: true,
-    allowed_mcp_tools: ['palace_summon', 'memories_search', 'memories_list', 'memories_stats', 'wiki_search', 'tmt_recall', 'palace_status'],
-    sys_prompt: '你是面向管理员的只读安全审计员，仅检索与汇报系统/记忆状态，严禁任何写操作或 Shell 执行。',
+    id: 'architect',
+    name: '架构师 (工程模式)',
+    engine_mode: 'auto',
+    allow_shell: true,
+    allowed_mcp_tools: ['*'],
+    op_only: false,
+    sys_prompt: '你是一位严谨务实的资深架构师与全栈工程师 Nox。直接输出技术结论、执行代码、排错并给出最小 diff，不需要客套。',
   },
 ];
 
@@ -150,7 +167,7 @@ function seedDemoJob(): void {
   const runAt = nextRun('0 9 * * *', new Date()) ?? Date.now() + 86400_000;
   db.prepare('INSERT INTO jobs(id,chat_id,cron_expr,run_at,prompt_payload,persona_id,enabled) VALUES(?,?,?,?,?,?,1)')
     .run('daily-9am-report', admin, '0 9 * * *', runAt,
-      '简要检查服务器内存/磁盘/四个服务(gateway/bridge/mnemosyne/antigravity)运行状态，并检索昨日记忆归档情况，输出一段简短晨报。', 'architect');
+      '简要检查服务器内存/磁盘/四个服务(gateway/bridge/mnemosyne/antigravity)运行状态，并检索昨日记忆归档情况，输出一段简短晨报。', 'nox');
 }
 
 // ============ 人设 ============
@@ -162,10 +179,29 @@ export function loadPersonas(): void {
     engine_mode: r.engine_mode === 'l1_only' ? 'l1_only' : 'auto',
     allowed_mcp_tools: JSON.parse(r.allowed_mcp_tools || '["*"]'),
     allow_shell: r.allow_shell === 1,
-    op_only: ['architect', 'readonly_auditor'].includes(r.id),
+    op_only: false,
   }]));
 }
-// ============ 群聊独立 Markdown 人设与群规加载器 ============
+
+// ============ 群聊独立沙箱 (Channel Sandbox) 与成员画像管理器 ============
+export interface MemberProfile {
+  name: string;
+  role?: string;
+  tags?: string[];
+  notes?: string;
+  interactions: number;
+  lastSeen: number;
+}
+
+export interface ChannelSandbox {
+  chatId: string;
+  dir: string;
+  personaText: string;
+  rulesText: string;
+  tools: string[];
+  members: Record<string, MemberProfile>;
+}
+
 interface ChannelDocCache {
   mtime: number;
   content: string;
@@ -188,43 +224,194 @@ function readFileCached(filePath: string): string | null {
   }
 }
 
-export function loadChannelPersona(chatId: string): Persona | null {
+/** 确保并自动脚手架群沙箱目录与四个基础文件 */
+export function ensureChannelSandbox(chatId: string): ChannelSandbox {
   const baseDir = config.channelsDir;
   const chatDir = join(baseDir, chatId);
   const defaultDir = join(baseDir, 'default');
 
-  // 1. 查找 persona.md (优先特定群，兜底 default)
-  let personaText = readFileCached(join(chatDir, 'persona.md'));
-  if (!personaText) {
-    personaText = readFileCached(join(defaultDir, 'persona.md'));
+  if (!existsSync(chatDir)) {
+    mkdirSync(chatDir, { recursive: true });
   }
 
-  // 2. 查找 rules.md (优先特定群，兜底 default)
-  let rulesText = readFileCached(join(chatDir, 'rules.md'));
-  if (!rulesText) {
-    rulesText = readFileCached(join(defaultDir, 'rules.md'));
+  const personaPath = join(chatDir, 'persona.md');
+  if (!existsSync(personaPath)) {
+    const defaultPersona = readFileCached(join(defaultDir, 'persona.md')) ||
+      `# Nox - 群聊智能助手\n你是微信群聊专属 AI 助手 Nox。性格敏锐、聪慧亲切、热情得体。\n在群聊中协助解答问题、技术交流与友好互动。`;
+    writeFileSync(personaPath, defaultPersona, 'utf-8');
   }
 
-  if (!personaText && !rulesText) return null;
+  const rulesPath = join(chatDir, 'rules.md');
+  if (!existsSync(rulesPath)) {
+    const defaultRules = readFileCached(join(defaultDir, 'rules.md')) ||
+      `# 社群交互与安全铁律\n1. 绝对保密原则：严禁向群内透露任何服务器IP、端口、API密钥。\n2. 权限隔离原则：群聊内严禁执行任何Linux Shell命令或文件改写。\n3. 记忆边界铁律：群聊只讨论公开公共知识，严禁透露他人私聊隐私。`;
+    writeFileSync(rulesPath, defaultRules, 'utf-8');
+  }
 
+  const toolsPath = join(chatDir, 'tools.json');
+  if (!existsSync(toolsPath)) {
+    writeFileSync(toolsPath, JSON.stringify(['web_search', 'group_remind', 'palace_memo'], null, 2), 'utf-8');
+  }
+
+  const membersPath = join(chatDir, 'members.json');
+  if (!existsSync(membersPath)) {
+    writeFileSync(membersPath, '{}', 'utf-8');
+  }
+
+  const personaText = readFileCached(personaPath) || '';
+  const rulesText = readFileCached(rulesPath) || '';
+  let tools: string[] = ['web_search', 'group_remind', 'palace_memo'];
+  try {
+    const raw = readFileSync(toolsPath, 'utf-8');
+    tools = JSON.parse(raw);
+  } catch { /* 容错 */ }
+
+  let members: Record<string, MemberProfile> = {};
+  try {
+    const raw = readFileSync(membersPath, 'utf-8');
+    members = JSON.parse(raw);
+  } catch { /* 容错 */ }
+
+  return { chatId, dir: chatDir, personaText, rulesText, tools, members };
+}
+
+export interface ChannelSummary {
+  chatId: string;
+  tools: string[];
+  memberCount: number;
+  hasPersona: boolean;
+  hasRules: boolean;
+}
+
+export function listChannelSandboxes(): ChannelSummary[] {
+  const baseDir = config.channelsDir;
+  if (!existsSync(baseDir)) return [];
+  try {
+    const entries = readdirSync(baseDir, { withFileTypes: true });
+    const list: ChannelSummary[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name !== 'default' && !entry.name.startsWith('.')) {
+        const sb = ensureChannelSandbox(entry.name);
+        list.push({
+          chatId: entry.name,
+          tools: sb.tools,
+          memberCount: Object.keys(sb.members).length,
+          hasPersona: Boolean(sb.personaText),
+          hasRules: Boolean(sb.rulesText),
+        });
+      }
+    }
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+export function updateChannelSandbox(
+  chatId: string,
+  updates: { personaText?: string; rulesText?: string; tools?: string[] }
+): ChannelSandbox {
+  const sb = ensureChannelSandbox(chatId);
+  if (typeof updates.personaText === 'string') {
+    writeFileSync(join(sb.dir, 'persona.md'), updates.personaText, 'utf-8');
+    sb.personaText = updates.personaText;
+  }
+  if (typeof updates.rulesText === 'string') {
+    writeFileSync(join(sb.dir, 'rules.md'), updates.rulesText, 'utf-8');
+    sb.rulesText = updates.rulesText;
+  }
+  if (Array.isArray(updates.tools)) {
+    writeFileSync(join(sb.dir, 'tools.json'), JSON.stringify(updates.tools, null, 2), 'utf-8');
+    sb.tools = updates.tools;
+  }
+  return sb;
+}
+
+export function getMemberProfiles(chatId: string): Record<string, MemberProfile> {
+  const sb = ensureChannelSandbox(chatId);
+  return sb.members;
+}
+
+export function getMemberProfile(chatId: string, wxid: string): MemberProfile | null {
+  const sb = ensureChannelSandbox(chatId);
+  return sb.members[wxid] || null;
+}
+
+export function touchMemberProfile(chatId: string, wxid: string, name?: string): MemberProfile {
+  const sb = ensureChannelSandbox(chatId);
+  let profile = sb.members[wxid];
+  const now = Date.now();
+  if (!profile) {
+    profile = {
+      name: name || wxid,
+      interactions: 1,
+      lastSeen: now,
+    };
+    sb.members[wxid] = profile;
+  } else {
+    if (name && name !== profile.name) profile.name = name;
+    profile.interactions = (profile.interactions || 0) + 1;
+    profile.lastSeen = now;
+  }
+  try {
+    writeFileSync(join(sb.dir, 'members.json'), JSON.stringify(sb.members, null, 2), 'utf-8');
+  } catch { /* 写入异常不阻断 */ }
+  return profile;
+}
+
+export function updateMemberProfile(
+  chatId: string,
+  wxid: string,
+  updates: Partial<MemberProfile>
+): MemberProfile {
+  const sb = ensureChannelSandbox(chatId);
+  const current = sb.members[wxid] || {
+    name: updates.name || wxid,
+    interactions: 0,
+    lastSeen: Date.now(),
+  };
+  const updated: MemberProfile = {
+    ...current,
+    ...updates,
+    lastSeen: Date.now(),
+  };
+  sb.members[wxid] = updated;
+  try {
+    writeFileSync(join(sb.dir, 'members.json'), JSON.stringify(sb.members, null, 2), 'utf-8');
+  } catch { /* 写入异常不阻断 */ }
+  return updated;
+}
+
+export function formatMemberProfileContext(chatId: string, wxid: string, name?: string): string {
+  const profile = touchMemberProfile(chatId, wxid, name);
+  const details: string[] = [];
+  if (profile.role) details.push(`身份: ${profile.role}`);
+  if (profile.tags && profile.tags.length > 0) details.push(`标签: ${profile.tags.join('/')}`);
+  if (profile.notes) details.push(`关注点: ${profile.notes}`);
+  const extra = details.length > 0 ? ` (${details.join(', ')})` : '';
+  return `[当前提问成员: ${profile.name || name || '群友'}${extra}]`;
+}
+
+export function loadChannelPersona(chatId: string): Persona | null {
+  const sb = ensureChannelSandbox(chatId);
   const combinedPrompt = [
-    personaText || '你是微信群聊专属 AI 助手。性格聪慧亲切、热情得体。',
-    rulesText ? `\n\n【群聊最高安全与行为铁律】：\n${rulesText}` : '',
+    sb.personaText || '你是微信群聊专属 AI 助手 Nox。性格敏锐、聪慧亲切、热情得体。',
+    sb.rulesText ? `\n\n【群聊最高安全与行为铁律】：\n${sb.rulesText}` : '',
   ].join('');
 
   return {
     id: `channel_${chatId}`,
-    name: `群独立人设 (${chatId.endsWith('@chatroom') ? chatId.replace('@chatroom', '').slice(-6) : chatId})`,
+    name: `群沙箱人设 (${chatId.endsWith('@chatroom') ? chatId.replace('@chatroom', '').slice(-6) : chatId})`,
     sys_prompt: combinedPrompt,
     engine_mode: 'l1_only',
-    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search'],
+    allowed_mcp_tools: sb.tools,
     allow_shell: false,
     op_only: false,
   };
 }
 
 export function getPersona(id: string, isOp = true, chatId?: string): Persona {
-  // 1. 如果指定了 chatId 且属于群聊，优先加载群聊专属 Markdown 人设与群规
+  // 1. 如果指定了 chatId 且属于群聊，优先加载群沙箱专属 Markdown 人设、群规与工具配置
   if (chatId && isGroup(chatId)) {
     const channelPersona = loadChannelPersona(chatId);
     if (channelPersona) {
@@ -232,10 +419,10 @@ export function getPersona(id: string, isOp = true, chatId?: string): Persona {
     }
   }
 
-  // 2. 正常读取 SQLite / 缓存人设
-  const p = personaCache.get(id) || personaCache.get('daily_assistant') || DEFAULT_PERSONAS[1];
+  // 2. 正常读取 SQLite / 缓存人设（默认统一为 Nox）
+  const p = personaCache.get(id) || personaCache.get('nox') || personaCache.get('daily_assistant') || DEFAULT_PERSONAS[0];
 
-  // 3. 铁律：如果是群聊，无论任何人（包括 OP），绝对强制降级为表人设 / 禁用 Shell
+  // 3. 动态安全护栏：如果是群聊，无论任何人（包括 OP），绝对强制降级为 l1_only / 禁用 Shell
   if (chatId && isGroup(chatId)) {
     return {
       ...p,
@@ -245,16 +432,27 @@ export function getPersona(id: string, isOp = true, chatId?: string): Persona {
     };
   }
 
-  // 4. 非 OP 用户强行读取里人设时，硬降级为默认表面人设 (灵动助手)
-  if (!isOp && p.op_only) {
-    return personaCache.get('daily_assistant') || DEFAULT_PERSONAS[1];
+  // 4. 私聊环境：只有系统管理员 (OP) 允许开启 Shell 执行权限，普通用户强制禁用 Shell
+  if (!isOp) {
+    return {
+      ...p,
+      allow_shell: false,
+      op_only: false,
+    };
   }
   return p;
 }
-export function listPersonas(isOp = true): Persona[] {
-  const all = Array.from(personaCache.values());
-  if (isOp) return all;
-  return all.filter((p) => !p.op_only);
+
+export function listPersonas(_isOp = true): Persona[] {
+  if (personaCache.size === 0) {
+    try {
+      loadPersonas();
+    } catch { /* ignore */ }
+    if (personaCache.size === 0) {
+      return [...DEFAULT_PERSONAS];
+    }
+  }
+  return Array.from(personaCache.values());
 }
 
 export type GatewayMode = 'chat' | 'sentry' | 'mute';
@@ -269,11 +467,9 @@ interface SessionRow {
 export function getSession(chatId: string): SessionRow {
   touchSessionRow(chatId);
   const row = db.prepare('SELECT chat_id, persona_id, workspace, pending_confirm_id, mode FROM sessions WHERE chat_id = ?').get(chatId) as any;
-  const isGrp = isGroup(chatId);
-  const defaultPersona = isGrp ? 'daily_assistant' : 'architect';
   return {
     chat_id: row.chat_id,
-    persona_id: row.persona_id || defaultPersona,
+    persona_id: row.persona_id || 'nox',
     workspace: row.workspace,
     pending_confirm_id: row.pending_confirm_id,
     mode: (['chat', 'sentry', 'mute'].includes(row.mode) ? row.mode : 'chat') as GatewayMode,
@@ -281,10 +477,8 @@ export function getSession(chatId: string): SessionRow {
 }
 function touchSessionRow(chatId: string): void {
   const now = Date.now();
-  const isGrp = isGroup(chatId);
-  const defaultPersona = isGrp ? 'daily_assistant' : 'architect';
   db.prepare('INSERT INTO sessions(chat_id, persona_id, updated_at) VALUES(?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET updated_at = ?')
-    .run(chatId, defaultPersona, now, now);
+    .run(chatId, 'nox', now, now);
 }
 export function setMode(chatId: string, mode: GatewayMode): void {
   touchSessionRow(chatId);
@@ -343,8 +537,8 @@ export function setWorkspace(chatId: string, path: string): void {
   touchSessionRow(chatId);
   db.prepare('UPDATE sessions SET workspace = ?, updated_at = ? WHERE chat_id = ?').run(path, Date.now(), chatId);
 }
-export function toolAllowedForChat(chatId: string, tool: string): { allowed: boolean; persona: Persona } {
-  const p = getPersona(getSession(chatId).persona_id);
+export function toolAllowedForChat(chatId: string, tool: string, isOp = false): { allowed: boolean; persona: Persona } {
+  const p = getPersona(getSession(chatId).persona_id, isOp, chatId);
   return { allowed: p.allowed_mcp_tools.includes('*') || p.allowed_mcp_tools.includes(tool), persona: p };
 }
 

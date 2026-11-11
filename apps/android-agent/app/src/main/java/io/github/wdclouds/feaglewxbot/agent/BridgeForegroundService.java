@@ -698,14 +698,17 @@ public final class BridgeForegroundService extends Service {
                     .putLong("stat_last_outbound_time", System.currentTimeMillis())
                     .apply();
         } catch (RemoteException error) {
-            if (sender == notificationMessenger) {
-                notificationMessenger = null;
-            } else {
-                hookMessenger = null;
+            Log.e(TAG, "handleSendText failed: " + error, error);
+            if (error instanceof android.os.DeadObjectException) {
+                if (sender == notificationMessenger) {
+                    notificationMessenger = null;
+                } else {
+                    hookMessenger = null;
+                }
+                prefs.edit().putString(
+                        AgentProtocol.KEY_HOOK_STATUS,
+                        "已断开 / disconnected").apply();
             }
-            prefs.edit().putString(
-                    AgentProtocol.KEY_HOOK_STATUS,
-                    "已断开 / disconnected").apply();
             sendCommandError(commandId, "sender_disconnected");
         }
     }
@@ -730,7 +733,6 @@ public final class BridgeForegroundService extends Service {
             return;
         }
 
-        // 大图下载与 base64 编解码耗时操作，放工作线程，避免阻塞 WebSocket 读线程。
         final String path = imagePath;
         final String base64 = imageBase64;
         final String url = imageUrl;
@@ -751,31 +753,33 @@ public final class BridgeForegroundService extends Service {
             String imageUrl,
             boolean group,
             boolean isRaw) {
-        if (!imageUrl.isEmpty()) {
-            try {
-                byte[] bytes = downloadImageUrl(imageUrl);
-                if (bytes == null || bytes.length == 0) {
-                    sendCommandError(commandId, "image_download_empty");
-                    return;
+        java.io.File tempFile = null;
+        try {
+            if (!imageUrl.isEmpty()) {
+                tempFile = downloadImageToFile(imageUrl);
+            } else if (!imageBase64.isEmpty()) {
+                tempFile = saveBase64ToFile(imageBase64);
+            } else if (!imagePath.isEmpty()) {
+                java.io.File file = new java.io.File(imagePath);
+                if (file.exists() && file.canRead()) {
+                    tempFile = file;
                 }
-                String base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
-                dispatchImageChunks(sender, commandId, talker, base64, group, isRaw);
-                return;
-            } catch (Throwable error) {
-                Log.e(TAG, "Failed to download image from " + imageUrl, error);
-                sendCommandError(commandId, "image_download_failed: " + error.getMessage());
+            }
+
+            if (tempFile != null && tempFile.exists() && tempFile.length() > 0) {
+                dispatchImagePfd(sender, commandId, talker, tempFile, group, isRaw);
                 return;
             }
+            sendCommandError(commandId, "image_source_empty");
+        } catch (Throwable error) {
+            Log.e(TAG, "Failed to dispatch image", error);
+            sendCommandError(commandId, "image_dispatch_failed: " + error.getMessage());
         }
-        if (!imageBase64.isEmpty()) {
-            dispatchImageChunks(sender, commandId, talker, imageBase64, group, isRaw);
-            return;
-        }
-        dispatchImageFile(sender, commandId, talker, imagePath, group, isRaw);
     }
 
-    private byte[] downloadImageUrl(String urlStr) throws Exception {
-        Log.i(TAG, "Downloading outbound image from: " + urlStr);
+    private java.io.File downloadImageToFile(String urlStr) throws Exception {
+        Log.i(TAG, "Downloading outbound image to file from: " + urlStr);
+        java.io.File temp = java.io.File.createTempFile("feagle_out_", ".img", getCacheDir());
         java.net.URL url = new java.net.URL(urlStr);
         java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
         conn.setConnectTimeout(15_000);
@@ -783,22 +787,76 @@ public final class BridgeForegroundService extends Service {
         conn.setInstanceFollowRedirects(true);
         int code = conn.getResponseCode();
         if (code != 200) {
+            temp.delete();
             throw new java.io.IOException("HTTP " + code + " on image download");
         }
-        java.io.InputStream in = conn.getInputStream();
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-        try {
-            byte[] buf = new byte[16384];
+        try (java.io.InputStream in = conn.getInputStream();
+             java.io.FileOutputStream out = new java.io.FileOutputStream(temp)) {
+            byte[] buf = new byte[32768];
             int read;
+            long total = 0;
             while ((read = in.read(buf)) > 0) {
                 out.write(buf, 0, read);
+                total += read;
             }
-            byte[] result = out.toByteArray();
-            Log.i(TAG, "Outbound image downloaded bytes=" + result.length);
-            return result;
+            out.flush();
+            Log.i(TAG, "Outbound image downloaded to file bytes=" + total);
         } finally {
-            try { in.close(); } catch (Throwable ignored) {}
             conn.disconnect();
+        }
+        return temp;
+    }
+
+    private java.io.File saveBase64ToFile(String base64) throws Exception {
+        java.io.File temp = java.io.File.createTempFile("feagle_out_", ".img", getCacheDir());
+        byte[] bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT);
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(temp)) {
+            out.write(bytes);
+            out.flush();
+        }
+        return temp;
+    }
+
+    private void dispatchImagePfd(
+            Messenger sender,
+            String commandId,
+            String talker,
+            java.io.File file,
+            boolean group,
+            boolean isRaw) {
+        android.os.ParcelFileDescriptor pfd = null;
+        try {
+            pfd = android.os.ParcelFileDescriptor.open(file, android.os.ParcelFileDescriptor.MODE_READ_ONLY);
+            Message msg = Message.obtain(null, AgentProtocol.MSG_SEND_IMAGE);
+            Bundle data = new Bundle();
+            data.putString("command_id", commandId);
+            data.putString("talker", talker);
+            data.putString("chat_type", group ? "group" : "private");
+            data.putBoolean("is_raw", isRaw);
+            data.putParcelable("pfd", pfd);
+            msg.setData(data);
+            sender.send(msg);
+            Log.i(TAG, "send_image dispatched via PFD bytes=" + file.length() + " to=" + talker + " isRaw=" + isRaw);
+            bumpOutboundStat();
+        } catch (java.io.FileNotFoundException error) {
+            Log.e(TAG, "Image file not found for PFD: " + error, error);
+            sendCommandError(commandId, "file_not_found");
+        } catch (RemoteException error) {
+            Log.e(TAG, "Failed to send image PFD via Binder: " + error, error);
+            if (error instanceof android.os.DeadObjectException) {
+                hookMessenger = null;
+                prefs.edit().putString(
+                        AgentProtocol.KEY_HOOK_STATUS,
+                        "已断开 / disconnected").apply();
+            }
+            sendCommandError(commandId, "sender_disconnected");
+        } finally {
+            if (pfd != null) {
+                try { pfd.close(); } catch (Throwable ignored) {}
+            }
+            if (file != null && file.getAbsolutePath().startsWith(getCacheDir().getAbsolutePath())) {
+                file.delete();
+            }
         }
     }
 

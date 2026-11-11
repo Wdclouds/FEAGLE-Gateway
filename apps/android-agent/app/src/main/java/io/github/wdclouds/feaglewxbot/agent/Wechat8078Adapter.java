@@ -2485,6 +2485,9 @@ final class Wechat8078Adapter {
                 refUser = extractXmlTag(refermsg, "fromusr");
             }
             String refContent = extractXmlTag(refermsg, "content");
+            if (refContent != null && (refContent.contains("<msg><img") || refContent.contains("<img") || refContent.contains("cdnthumburl"))) {
+                refContent = "[\u56fe\u7247]";
+            }
             if (refUser != null && !refUser.isEmpty() && refContent != null && !refContent.isEmpty()) {
                 quotePrefix = "[\u5f15\u7528 \"" + refUser.trim() + ": " + refContent.trim() + "\"] ";
             }

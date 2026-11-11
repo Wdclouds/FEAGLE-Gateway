@@ -605,10 +605,17 @@ public final class WechatHook implements IXposedHookLoadPackage {
         public void handleMessage(Message message) {
             if (message.what == AgentProtocol.MSG_SEND_IMAGE) {
                 Bundle data = message.getData();
+                data.setClassLoader(android.os.ParcelFileDescriptor.class.getClassLoader());
                 String commandId = data.getString("command_id", "");
                 String talker = data.getString("talker", "").trim();
+                boolean isRaw = data.getBoolean("is_raw", false);
+                android.os.ParcelFileDescriptor pfd = data.getParcelable("pfd");
+                if (pfd != null) {
+                    processImagePfd(commandId, talker, pfd, isRaw);
+                    return;
+                }
                 String imagePath = data.getString("image_path", "");
-                sendWechatImage(commandId, talker, imagePath, data.getBoolean("is_raw", false));
+                sendWechatImage(commandId, talker, imagePath, isRaw);
                 return;
             }
             if (message.what == AgentProtocol.MSG_SEND_IMAGE_CHUNK) {
@@ -662,6 +669,34 @@ public final class WechatHook implements IXposedHookLoadPackage {
         });
     }
 
+    private static void processImagePfd(
+            String commandId,
+            String talker,
+            android.os.ParcelFileDescriptor pfd,
+            boolean isRaw) {
+        new Thread(() -> {
+            try {
+                java.io.File dir = new java.io.File(appContext.getCacheDir(), "feagle_out");
+                if (!dir.exists()) dir.mkdirs();
+                java.io.File target = new java.io.File(dir, "out_" + System.currentTimeMillis() + ".jpg");
+                try (java.io.InputStream in = new android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd);
+                     java.io.FileOutputStream out = new java.io.FileOutputStream(target)) {
+                    byte[] buf = new byte[32768];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                    out.flush();
+                }
+                log("image received via PFD bytes=" + target.length() + " path=" + target.getAbsolutePath());
+                sendWechatImage(commandId, talker, target.getAbsolutePath(), isRaw);
+            } catch (Throwable e) {
+                logError("Failed to process image PFD", e);
+                sendCommandResult(commandId, false, e.getClass().getSimpleName());
+            }
+        }, "feagle-pfd-recv").start();
+    }
+
     private static void sendWechatImage(String commandId, String talker, String imagePath, boolean isRaw) {
         mainHandler.post(() -> {
             try {
@@ -670,7 +705,8 @@ public final class WechatHook implements IXposedHookLoadPackage {
                 } else {
                     throw new UnsupportedOperationException("Image send not supported on " + installedWechatVersion());
                 }
-                sendCommandResult(commandId, true, "");
+                markImageDispatched(commandId);
+                sendCommandResult(commandId, true, "", "dispatched");
                 log("send_image accepted command=" + commandId + " path=" + imagePath + " isRaw=" + isRaw);
             } catch (Throwable error) {
                 logError("send_image failed command=" + commandId, error);

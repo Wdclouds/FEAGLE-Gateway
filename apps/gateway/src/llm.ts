@@ -1,21 +1,23 @@
-import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import { readFile } from 'node:fs/promises';
 import { config } from './config.js';
 import type { CompactRouteDecision, RouteSignal } from './protocol.js';
-
-const proxyAgent = new ProxyAgent(config.proxyUrl);
+import {
+  type ToolContext,
+  getToolsForChat,
+  toOpenAiTools,
+  executeToolCall,
+} from './tools.js';
 
 async function postJson(
   url: string,
   apiKey: string,
   body: unknown,
-  timeoutMs: number,
-  useProxy = false
+  timeoutMs: number
 ): Promise<any> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const res = await (useProxy ? undiciFetch : fetch)(url, {
+    const res = await fetch(url, {
       method: 'POST',
       signal: ctl.signal,
       headers: {
@@ -23,8 +25,7 @@ async function postJson(
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
-      ...(useProxy ? { dispatcher: proxyAgent } : {}),
-    } as any);
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
     return await res.json();
   } finally {
@@ -32,56 +33,61 @@ async function postJson(
   }
 }
 
-/** Antigravity 反代单轮调用（Gemini 免费额度）。失败返回 null，由调用方降级。 */
-async function antigravityChat(
-  messages: Array<{ role: string; content: string }>,
-  opts: { maxTokens: number; temperature: number; timeoutMs?: number }
-): Promise<string | null> {
+export interface ChatResponse {
+  content: string | null;
+  tool_calls?: Array<{
+    id: string;
+    type: string;
+    function: {
+      name: string;
+      arguments: string;
+    };
+  }>;
+  message?: any;
+}
+
+/** Antigravity 反代调用（Gemini 3.8 Flash，支持 OpenAI 标准 tools/tool_calls）。 */
+export async function antigravityChatResponse(
+  messages: Array<any>,
+  opts: { maxTokens: number; temperature: number; timeoutMs?: number; tools?: any[] }
+): Promise<ChatResponse | null> {
   if (!config.antigravity.apiKey) return null;
   try {
+    const payload: Record<string, any> = {
+      model: config.antigravity.model,
+      messages,
+      temperature: opts.temperature,
+      max_tokens: opts.maxTokens,
+      stream: false,
+    };
+    if (opts.tools && opts.tools.length > 0) {
+      payload.tools = opts.tools;
+    }
     const res = await postJson(
       `${config.antigravity.baseUrl}/chat/completions`,
       config.antigravity.apiKey,
-      {
-        model: config.antigravity.model,
-        messages,
-        temperature: opts.temperature,
-        max_tokens: opts.maxTokens,
-        stream: false,
-      },
+      payload,
       opts.timeoutMs ?? config.antigravity.timeoutMs
     );
-    const raw = res.choices?.[0]?.message?.content;
-    return raw ? String(raw).trim() : null;
+    const msg = res.choices?.[0]?.message;
+    if (!msg) return null;
+    return {
+      content: msg.content ? String(msg.content).trim() : null,
+      tool_calls: msg.tool_calls,
+      message: msg,
+    };
   } catch {
     return null; // 反代挂/超时/限流 → 降级
   }
 }
 
-/** DeepSeek 单轮调用（付费，兜底）。失败返回 null。 */
-async function deepseekChat(
-  messages: Array<{ role: string; content: string }>,
+/** Antigravity 反代单轮调用（Gemini 3.8 Flash）。失败返回 null，由调用方降级。 */
+async function antigravityChat(
+  messages: Array<{ role: string; content: string | unknown[] }>,
   opts: { maxTokens: number; temperature: number; timeoutMs?: number }
 ): Promise<string | null> {
-  if (!config.deepseek.apiKey) return null;
-  try {
-    const res = await postJson(
-      `${config.deepseek.baseUrl}/chat/completions`,
-      config.deepseek.apiKey,
-      {
-        model: config.deepseek.model,
-        messages,
-        temperature: opts.temperature,
-        max_tokens: opts.maxTokens,
-        stream: false,
-      },
-      opts.timeoutMs ?? config.deepseek.timeoutMs
-    );
-    const raw = res.choices?.[0]?.message?.content;
-    return raw ? String(raw).trim() : null;
-  } catch {
-    return null;
-  }
+  const resp = await antigravityChatResponse(messages, opts);
+  return resp?.content ?? null;
 }
 
 const ROUTE_SYS = (isBusy: boolean) =>
@@ -112,60 +118,47 @@ function parseDecision(raw: string, isBusy: boolean): CompactRouteDecision {
 }
 
 function fallbackDecision(isBusy: boolean): CompactRouteDecision {
-  // NIM 限流/超时兜底：直接放行并拉满检索范围防失忆
+  // 模型不可用或超时兜底：直接放行并拉满检索范围防失忆
   return { s: isBusy ? 'S' : 'C', c: 0.5, q: undefined };
 }
 
 /**
- * NIM 视觉描述器：nemotron-3.5-super-vl 读微信图片（报错截图等）转成文字。
- * 只当"眼睛"用——路由判断力差（实测全判 W），路由主力固定 DeepSeek。
- * thinking:false 必须传：否则 600+ token 全花在推理上不出结果。
+ * 视觉描述器：使用 Gemini 3.8 Flash 原生多模态视觉读取图片转成文字描述。
+ * 专属提示词：聚焦于报错提取、界面关键信息与聊天对话转述，给后续路由层提供文本线索。
  */
 export async function describeImage(imgPath: string): Promise<string | null> {
-  if (!config.nim.enabled || !config.nim.apiKey) return null;
   try {
     const buf = await readFile(imgPath);
     const dataUrl = `data:image/jpeg;base64,${buf.toString('base64')}`;
-    const res = await postJson(
-      `${config.nim.baseUrl}/chat/completions`,
-      config.nim.apiKey,
-      {
-        model: config.nim.model,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: '用中文简述这张图片的内容。如果是报错/日志截图，转述关键错误信息；如果是聊天截图，转述主要对话内容。80字内。' },
-              { type: 'image_url', image_url: { url: dataUrl } },
-            ],
-          },
-        ],
-        max_tokens: 200,
-        temperature: 0.1,
-        stream: false,
-        chat_template_kwargs: { thinking: false },
-      },
-      config.nim.timeoutMs,
-      true // 走 mihomo 出海
+    const res = await antigravityChat(
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '你是视觉速记员。请用中文简述这张图片的内容。如果是报错或日志截图，提取关键错误和文件名；如果是UI或聊天截图，转述主要对话和操作意图。80字以内，直接输出摘要。' },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+      { maxTokens: 200, temperature: 0.1, timeoutMs: 15000 }
     );
-    const raw = res.choices?.[0]?.message?.content || '';
-    const text = String(raw).trim();
-    return text ? text.slice(0, 200) : null;
+    if (res) return res.slice(0, 200);
   } catch {
-    return null; // 描述失败按"图片不可读"处理，不阻塞路由
+    // 读图或反代异常降级
   }
+  return null;
 }
 
 /**
- * 第 1 层入口路由。主力 Gemini（Antigravity 反代，免费，实测 1.5~2.2s），
- * 降级 DeepSeek（付费，反代挂掉时兜底），全灭走本地兜底。
- * 图片消息先经 NIM VL 转述成文字再路由（NEMotron 当眼睛不当大脑）。
+ * 第 1 层入口路由。主力 Gemini 3.8 Flash（Antigravity 反代，免费，实测 1.5~2.2s），
+ * 失败走本地兜底。
+ * 图片消息先经视觉转述成文字再路由。
  */
 export async function routeMessage(
   compactHistory: string,
   isBusy: boolean,
   imgUrl?: string
-): Promise<{ decision: CompactRouteDecision; provider: 'gemini' | 'deepseek' | 'fallback'; imgDesc?: string | null }> {
+): Promise<{ decision: CompactRouteDecision; provider: 'gemini' | 'fallback'; imgDesc?: string | null }> {
   let text = compactHistory;
   let imgDesc: string | null | undefined;
   if (imgUrl) {
@@ -182,28 +175,96 @@ export async function routeMessage(
     timeoutMs: Math.min(10000, config.antigravity.timeoutMs),
   });
   if (gem) return { decision: parseDecision(gem, isBusy), provider: 'gemini', imgDesc };
-  const ds = await deepseekChat(msgs, {
-    maxTokens: 250,
-    temperature: 0.1,
-    timeoutMs: Math.min(8000, config.deepseek.timeoutMs),
-  });
-  if (ds) return { decision: parseDecision(ds, isBusy), provider: 'deepseek', imgDesc };
   return { decision: fallbackDecision(isBusy), provider: 'fallback', imgDesc };
 }
 
-/** l1_only 人设直答：跳过路由器与 Pi，主力 Gemini 带人设系统提示直接回复，降级 DeepSeek */
-export async function directChat(compactHistory: string, personaSysPrompt: string): Promise<string> {
-  const msgs = [
+/** l1_only 人设直答：跳过路由器与 Pi，Gemini 3.8 Flash 带人设系统提示直接回复。支持图片直传原生视觉、多轮历史轮次与标准工具执行。 */
+export async function directChat(
+  compactHistory: string,
+  personaSysPrompt: string,
+  imgPath?: string,
+  historyTurns?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  toolCtx?: ToolContext & { allowedToolNames?: string[] }
+): Promise<string> {
+  let userContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }> = compactHistory.slice(-2000);
+  if (imgPath) {
+    try {
+      const buf = await readFile(imgPath);
+      const dataUrl = `data:image/jpeg;base64,${buf.toString('base64')}`;
+      userContent = [
+        { type: 'text', text: compactHistory.slice(-2000) },
+        { type: 'image_url', image_url: { url: dataUrl } },
+      ];
+    } catch { /* 读图失败回退纯文本 */ }
+  }
+  const msgs: Array<{ role: string; content: any; tool_calls?: any; tool_call_id?: string; name?: string }> = [
     {
       role: 'system',
-      content: `${personaSysPrompt}\n你在微信里回复用户，保持简短（一般不超过 120 字），纯文本不用 Markdown。`,
+      content: `${personaSysPrompt}\n你在微信里回复用户，保持简短（一般不超过 150 字），纯文本不用 Markdown。`,
     },
-    { role: 'user', content: compactHistory.slice(-2000) },
   ];
-  const gem = await antigravityChat(msgs, { maxTokens: 500, temperature: 0.7 });
-  if (gem) return gem;
-  const ds = await deepseekChat(msgs, { maxTokens: 500, temperature: 0.7 });
-  return ds || '（回复生成失败，请稍后再试）';
+
+  // 注入之前的多轮对话历史（支持 15 分钟衰减周期内的连贯问答）
+  if (historyTurns && historyTurns.length > 0) {
+    for (const turn of historyTurns) {
+      msgs.push({
+        role: turn.role,
+        content: turn.content,
+      });
+    }
+  }
+
+  msgs.push({ role: 'user', content: userContent });
+
+  let tools: any[] | undefined;
+  if (toolCtx) {
+    const chatTools = getToolsForChat(toolCtx.chatId, toolCtx.isAdmin);
+    if (chatTools.length > 0) {
+      tools = toOpenAiTools(chatTools);
+    }
+  }
+
+  const MAX_ROUNDS = 3;
+  let currentRound = 0;
+  let finalContent: string | null = null;
+
+  while (currentRound < MAX_ROUNDS) {
+    currentRound++;
+    const resp = await antigravityChatResponse(msgs, {
+      maxTokens: 600,
+      temperature: 0.7,
+      tools: currentRound < MAX_ROUNDS ? tools : undefined,
+    });
+
+    if (!resp) break;
+
+    // 模型触发工具调用
+    if (resp.tool_calls && resp.tool_calls.length > 0 && toolCtx) {
+      msgs.push(resp.message);
+      for (const call of resp.tool_calls) {
+        const result = await executeToolCall(
+          call.function.name,
+          call.function.arguments,
+          toolCtx,
+          toolCtx.allowedToolNames
+        );
+        msgs.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          name: call.function.name,
+          content: result,
+        });
+      }
+      continue;
+    }
+
+    if (resp.content) {
+      finalContent = resp.content;
+      break;
+    }
+  }
+
+  return finalContent || '（回复生成失败，请稍后再试）';
 }
 
 /** 第 4 层哨兵观测智能分析：对群聊消息进行轻量批审判，识别紧急事件与人际社交图谱 */
@@ -237,9 +298,7 @@ export async function analyzeSentryTranscript(transcript: string, chatTitle: str
     { role: 'system', content: sys },
     { role: 'user', content: transcript.slice(0, 5000) },
   ];
-  const raw =
-    (await antigravityChat(msgs, { maxTokens: 800, temperature: 0.1 })) ??
-    (await deepseekChat(msgs, { maxTokens: 800, temperature: 0.1 }));
+  const raw = await antigravityChat(msgs, { maxTokens: 800, temperature: 0.1 });
 
   if (!raw) return { urgent: false, relations: [] };
 
@@ -268,10 +327,7 @@ export async function distillMemories(
     { role: 'system', content: sys },
     { role: 'user', content: transcript.slice(0, 6000) },
   ];
-  const raw =
-    (await antigravityChat(msgs, { maxTokens: 600, temperature: 0.2 })) ??
-    (await deepseekChat(msgs, { maxTokens: 600, temperature: 0.2 })) ??
-    '[]';
+  const raw = (await antigravityChat(msgs, { maxTokens: 600, temperature: 0.2 })) ?? '[]';
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) return [];
   try {

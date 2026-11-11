@@ -7,7 +7,10 @@ import { quickBatch } from './sanitizer.js';
 import {
   initControlPlane, startScheduler, requestApproval, getTaskCtx,
   listPersonas, hasPendingConfirm, listJobs, toolAllowedForChat,
+  listChannelSandboxes, ensureChannelSandbox, updateChannelSandbox,
+  getMemberProfiles, updateMemberProfile,
 } from './control.js';
+import { getAllTools } from './tools.js';
 import type { WxInboundPkt } from './protocol.js';
 
 const seen = new Map<string, number>(); // 消息 ID 去重（防 bridge 重发）
@@ -121,6 +124,96 @@ const server = createServer((req, res) => {
   // 挂起审批一览
   if (req.method === 'GET' && req.url === '/internal/approvals') {
     return json(200, { pending: true, note: 'approvals held in-memory per chat', chats_hint: 'see sessions.pending_confirm_id' });
+  }
+
+  // ===== Web Admin Ops & Channel Sandbox 管理 REST API =====
+
+  // 1. 获取全局工具清单
+  if (req.method === 'GET' && req.url === '/api/tools') {
+    const tools = getAllTools();
+    return json(200, {
+      ok: true,
+      tools: tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters,
+      })),
+    });
+  }
+
+  // 2. 列出所有社群沙箱摘要
+  if (req.method === 'GET' && req.url === '/api/channels') {
+    return json(200, { ok: true, channels: listChannelSandboxes() });
+  }
+
+  // 3. 群聊沙箱成员列表
+  const membersMatch = (req.url || '').match(/^\/api\/channels\/([^/?]+)\/members$/);
+  if (req.method === 'GET' && membersMatch) {
+    const chatId = decodeURIComponent(membersMatch[1]);
+    const members = getMemberProfiles(chatId);
+    return json(200, { ok: true, chatId, members });
+  }
+
+  // 4. 更新特定群成员画像/角色标签
+  const memberUpdateMatch = (req.url || '').match(/^\/api\/channels\/([^/?]+)\/members\/([^/?]+)$/);
+  if (req.method === 'POST' && memberUpdateMatch) {
+    const chatId = decodeURIComponent(memberUpdateMatch[1]);
+    const wxid = decodeURIComponent(memberUpdateMatch[2]);
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 65536) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(raw);
+        const profile = updateMemberProfile(chatId, wxid, body);
+        return json(200, { ok: true, chatId, wxid, profile });
+      } catch {
+        return json(400, { error: 'bad_body' });
+      }
+    });
+    return;
+  }
+
+  // 5. 单个社群沙箱详情与配置更新
+  const channelMatch = (req.url || '').match(/^\/api\/channels\/([^/?]+)$/);
+  if (channelMatch) {
+    const chatId = decodeURIComponent(channelMatch[1]);
+    if (req.method === 'GET') {
+      const sb = ensureChannelSandbox(chatId);
+      return json(200, {
+        ok: true,
+        sandbox: {
+          chatId: sb.chatId,
+          dir: sb.dir,
+          personaText: sb.personaText,
+          rulesText: sb.rulesText,
+          tools: sb.tools,
+          memberCount: Object.keys(sb.members).length,
+        },
+      });
+    }
+
+    if (req.method === 'POST') {
+      let raw = '';
+      req.on('data', (c) => { raw += c; if (raw.length > 262144) req.destroy(); });
+      req.on('end', () => {
+        try {
+          const body = JSON.parse(raw);
+          const updated = updateChannelSandbox(chatId, body);
+          return json(200, {
+            ok: true,
+            sandbox: {
+              chatId: updated.chatId,
+              personaText: updated.personaText,
+              rulesText: updated.rulesText,
+              tools: updated.tools,
+            },
+          });
+        } catch {
+          return json(400, { error: 'bad_body' });
+        }
+      });
+      return;
+    }
   }
 
   json(404, { error: 'not_found' });
