@@ -93,7 +93,7 @@ const DEFAULT_PERSONAS: Persona[] = [
     name: 'Nox (日常对话模式)',
     engine_mode: 'l1_only',
     allow_shell: false,
-    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search', 'group_remind', 'palace_memo'],
+    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search', 'group_remind', 'palace_memo', 'generate_image'],
     op_only: false,
     sys_prompt: '你是智能助手 Nox。性格敏锐、温和聪慧。聊天自然亲切，专注于日常解答、总结归纳与群内互动，不执行服务器底层变更。',
   },
@@ -278,7 +278,7 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
 
   const toolsPath = join(chatDir, 'tools.json');
   if (!existsSync(toolsPath)) {
-    writeFileSync(toolsPath, JSON.stringify(['web_search', 'group_remind', 'palace_memo'], null, 2), 'utf-8');
+    writeFileSync(toolsPath, JSON.stringify(['web_search', 'group_remind', 'palace_memo', 'generate_image'], null, 2), 'utf-8');
   }
 
   const membersPath = join(chatDir, 'members.json');
@@ -288,7 +288,7 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
 
   const personaText = readFileCached(personaPath) || '';
   const rulesText = readFileCached(rulesPath) || '';
-  let tools: string[] = ['web_search', 'group_remind', 'palace_memo'];
+  let tools: string[] = ['web_search', 'group_remind', 'palace_memo', 'generate_image'];
   try {
     const raw = readFileSync(toolsPath, 'utf-8');
     tools = JSON.parse(raw);

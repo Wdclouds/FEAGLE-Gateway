@@ -145,6 +145,34 @@ export class DashboardServer {
       return;
     }
 
+    // ---- 透明原生反向代理：出站批次转发至 GatewayClient 127.0.0.1:6192 ----
+    if (url.pathname === '/gw/outbound') {
+      const outboundPort = Number(process.env.GATEWAY_OUTBOUND_PORT || 6192);
+      const proxyReq = httpRequest({
+        hostname: '127.0.0.1',
+        port: outboundPort,
+        path: '/gw/outbound',
+        method: request.method,
+        headers: {
+          ...request.headers,
+          host: `127.0.0.1:${outboundPort}`,
+        },
+      }, (proxyRes) => {
+        response.writeHead(proxyRes.statusCode || 200, {
+          ...proxyRes.headers,
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        });
+        proxyRes.pipe(response);
+      });
+      proxyReq.on('error', (err) => {
+        response.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'outbound_unavailable', detail: err?.message || String(err) }));
+      });
+      request.pipe(proxyReq);
+      return;
+    }
+
     // ---- 透明原生反向代理：将网关专属 API (社群沙箱/全局工具/网关健康) 转发至 Gateway 127.0.0.1:6185 ----
     const isGatewayPath = url.pathname.startsWith('/api/tools')
       || url.pathname.startsWith('/api/channels')

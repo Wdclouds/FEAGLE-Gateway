@@ -24,7 +24,7 @@ const getNum = (k: string, d: number): number => Number(env[k]) || d;
 export const config = {
   // 网关本体
   gatewayPort: getNum('GATEWAY_PORT', 6185),
-  bridgeOutUrl: get('BRIDGE_OUT_URL', 'http://127.0.0.1:6190/gw/outbound'),
+  bridgeOutUrl: get('BRIDGE_OUT_URL', 'http://127.0.0.1:6192/gw/outbound'),
 
   // 鉴权
   adminWxids: get('ADMIN_WXIDS', '').split(',').map((s) => s.trim()).filter(Boolean),

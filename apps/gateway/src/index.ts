@@ -138,7 +138,7 @@ const server = createServer((req, res) => {
         name: t.name,
         description: t.description,
         parameters: t.parameters,
-        builtin: ['web_search', 'group_remind', 'palace_memo'].includes(t.name),
+        builtin: ['web_search', 'group_remind', 'palace_memo', 'generate_image'].includes(t.name),
       })),
     });
   }
