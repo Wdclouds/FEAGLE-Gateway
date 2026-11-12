@@ -911,12 +911,24 @@ final class Wechat8078Adapter {
                 if (title != null && !title.isEmpty()) {
                     boolean quoteMentioned = title.trim().startsWith("@");
                     long quoteSvrIdLong = 0L;
-                    try {
-                        String svridStr = extractXmlTag(content, "svrid");
-                        if (svridStr != null && !svridStr.isEmpty()) {
-                            quoteSvrIdLong = Long.parseLong(svridStr);
+                    String refermsg = extractXmlTag(content, "refermsg");
+                    String refType = refermsg != null ? extractXmlTag(refermsg, "type") : null;
+                    String refContent = refermsg != null ? extractXmlTag(refermsg, "content") : null;
+                    // 仅当引用的确实是纯图片消息（type==3 或包含 <img/）且不包含 <appmsg 时，才传递 quoteSvrId 等待图片下载
+                    // 若引用的是公众号卡片/文章/链接/文件，不可传 quoteSvrId，防止 Bridge 挂起 15 秒
+                    boolean isImageQuote = "3".equals(refType)
+                            || (refContent != null && (refContent.contains("<msg><img") || refContent.contains("<img")) && !refContent.contains("<appmsg"));
+                    if (isImageQuote) {
+                        try {
+                            String svridStr = extractXmlTag(refermsg, "svrid");
+                            if (svridStr == null || svridStr.isEmpty()) {
+                                svridStr = extractXmlTag(content, "svrid");
+                            }
+                            if (svridStr != null && !svridStr.isEmpty()) {
+                                quoteSvrIdLong = Long.parseLong(svridStr);
+                            }
+                        } catch (Throwable ignored) {
                         }
-                    } catch (Throwable ignored) {
                     }
                     // 群聊：captureTextFields 的 parseGroupText 要求
                     // "发送者:\n正文" 格式——从 content 前缀提取发送者拼回。
@@ -2485,8 +2497,28 @@ final class Wechat8078Adapter {
                 refUser = extractXmlTag(refermsg, "fromusr");
             }
             String refContent = extractXmlTag(refermsg, "content");
-            if (refContent != null && (refContent.contains("<msg><img") || refContent.contains("<img") || refContent.contains("cdnthumburl"))) {
-                refContent = "[\u56fe\u7247]";
+            if (refContent != null && !refContent.isEmpty()) {
+                // 1. \u5982\u679c\u5f15\u7528\u7684\u5185\u5bb9\u662f AppMsg\uff08\u516c\u4f17\u53f7\u5361\u7247\u3001\u7f51\u9875\u94fe\u63a5\u7b49\uff09
+                if (refContent.contains("<appmsg") || (refContent.contains("<url>") && refContent.contains("<title>"))) {
+                    String refTitle = extractXmlTag(refContent, "title");
+                    String refDes = extractXmlTag(refContent, "des");
+                    String refUrl = extractXmlTag(refContent, "url");
+                    StringBuilder sb = new StringBuilder("[\u94fe\u63a5] ");
+                    if (refTitle != null && !refTitle.isEmpty()) {
+                        sb.append(refTitle);
+                    } else {
+                        sb.append("\u516c\u4f17\u53f7\u6587\u7ae0");
+                    }
+                    if (refDes != null && !refDes.isEmpty()) {
+                        sb.append("\n").append(refDes);
+                    }
+                    if (refUrl != null && !refUrl.isEmpty()) {
+                        sb.append("\n").append(refUrl);
+                    }
+                    refContent = sb.toString();
+                } else if (refContent.contains("<msg><img") || refContent.contains("<img") || refContent.contains("cdnthumburl")) {
+                    refContent = "[\u56fe\u7247]";
+                }
             }
             if (refUser != null && !refUser.isEmpty() && refContent != null && !refContent.isEmpty()) {
                 quotePrefix = "[\u5f15\u7528 \"" + refUser.trim() + ": " + refContent.trim() + "\"] ";

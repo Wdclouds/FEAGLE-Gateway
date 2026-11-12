@@ -1156,7 +1156,8 @@ export class AndroidWechatClient {
       // 引用图片组合：Agent 带 quoteSvrId（被引用图 msgSvrId）→ 查缓存
       const quoteSvrId = Number(message.quoteSvrId || 0);
       let quoteImage = '';
-      if (quoteSvrId > 0) {
+      const isQuoteImage = !content.includes('[引用') || content.includes('[图片]');
+      if (quoteSvrId > 0 && isQuoteImage) {
         quoteImage = this.groupImageCache.get(quoteSvrId) || '';
         if (quoteImage) {
           this.groupImageCache.delete(quoteSvrId);
