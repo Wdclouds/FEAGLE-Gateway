@@ -395,7 +395,9 @@ export async function fetchWechatArticle(url: string): Promise<{
 }> {
   try {
     const urlMatch = url.match(/https?:\/\/mp\.weixin\.qq\.com\/s[^\s"'<>]+/);
-    const targetUrl = urlMatch ? urlMatch[0] : url.trim();
+    let targetUrl = urlMatch ? urlMatch[0] : url.trim();
+    // 微信 xml 或引用中常见 &amp; 转义，必须还原为标准 &，避免公众平台参数失效解析报错
+    targetUrl = targetUrl.replace(/&amp;/g, '&');
 
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 12_000);

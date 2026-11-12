@@ -204,6 +204,8 @@ export interface ChannelSandbox {
   members: Record<string, MemberProfile>;
 }
 
+export const CORE_TOOLS = ['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'];
+
 interface ChannelDocCache {
   mtime: number;
   content: string;
@@ -277,8 +279,29 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
   }
 
   const toolsPath = join(chatDir, 'tools.json');
-  if (!existsSync(toolsPath)) {
-    writeFileSync(toolsPath, JSON.stringify(['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'], null, 2), 'utf-8');
+  let tools: string[] = [...CORE_TOOLS];
+  if (existsSync(toolsPath)) {
+    try {
+      const raw = readFileSync(toolsPath, 'utf-8');
+      const saved = JSON.parse(raw);
+      if (Array.isArray(saved)) {
+        // 自动补全系统新引入的核心内置工具，避免已有群沙箱缺失核心能力
+        const set = new Set(saved);
+        let changed = false;
+        for (const t of CORE_TOOLS) {
+          if (!set.has(t)) {
+            set.add(t);
+            changed = true;
+          }
+        }
+        tools = Array.from(set);
+        if (changed) {
+          writeFileSync(toolsPath, JSON.stringify(tools, null, 2), 'utf-8');
+        }
+      }
+    } catch { /* 容错 */ }
+  } else {
+    writeFileSync(toolsPath, JSON.stringify(CORE_TOOLS, null, 2), 'utf-8');
   }
 
   const membersPath = join(chatDir, 'members.json');
@@ -288,11 +311,6 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
 
   const personaText = readFileCached(personaPath) || '';
   const rulesText = readFileCached(rulesPath) || '';
-  let tools: string[] = ['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'];
-  try {
-    const raw = readFileSync(toolsPath, 'utf-8');
-    tools = JSON.parse(raw);
-  } catch { /* 容错 */ }
 
   let members: Record<string, MemberProfile> = {};
   try {

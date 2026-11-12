@@ -76,7 +76,8 @@ export async function antigravityChatResponse(
       tool_calls: msg.tool_calls,
       message: msg,
     };
-  } catch {
+  } catch (err: any) {
+    console.error(`[antigravityChatResponse error] ${err?.message || String(err)}`);
     return null; // 反代挂/超时/限流 → 降级
   }
 }
@@ -231,8 +232,9 @@ export async function directChat(
   while (currentRound < MAX_ROUNDS) {
     currentRound++;
     const resp = await antigravityChatResponse(msgs, {
-      maxTokens: 600,
+      maxTokens: 1500,
       temperature: 0.7,
+      timeoutMs: 35_000,
       tools: currentRound < MAX_ROUNDS ? tools : undefined,
     });
 
