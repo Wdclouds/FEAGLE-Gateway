@@ -7,7 +7,7 @@ const convSkills = {
   readSkill: () => ''
 };
 import { createReadStream, existsSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import os from 'node:os';
@@ -142,6 +142,54 @@ export class DashboardServer {
     if (request.method === 'OPTIONS') {
       response.writeHead(204);
       response.end();
+      return;
+    }
+
+    // ---- 透明原生反向代理：将网关专属 API (社群沙箱/全局工具/网关健康) 转发至 Gateway 127.0.0.1:6185 ----
+    const isGatewayPath = url.pathname.startsWith('/api/tools')
+      || url.pathname.startsWith('/api/channels')
+      || url.pathname.startsWith('/api/gateway/');
+
+    if (isGatewayPath) {
+      const gatewayPort = Number(process.env.GATEWAY_PORT || 6185);
+      let targetPath = url.pathname + url.search;
+      if (url.pathname.startsWith('/api/gateway/')) {
+        const subPath = url.pathname.slice('/api/gateway'.length) || '/status';
+        targetPath = subPath + url.search;
+      }
+
+      const proxyReq = httpRequest({
+        hostname: '127.0.0.1',
+        port: gatewayPort,
+        path: targetPath,
+        method: request.method,
+        headers: {
+          ...request.headers,
+          host: `127.0.0.1:${gatewayPort}`,
+        },
+      }, (proxyRes) => {
+        response.writeHead(proxyRes.statusCode || 200, {
+          ...proxyRes.headers,
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        });
+        proxyRes.pipe(response);
+      });
+
+      proxyReq.on('error', (err) => {
+        response.writeHead(502, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify({
+          error: 'gateway_unavailable',
+          message: `无法连接到 Gateway 服务 (127.0.0.1:${gatewayPort})`,
+          detail: err?.message || String(err),
+        }));
+      });
+
+      request.pipe(proxyReq);
       return;
     }
 
@@ -1455,11 +1503,23 @@ export class DashboardServer {
 
     const requested = url.pathname === '/' ? '/index.html' : url.pathname;
     const relative = normalize(requested).replace(/^([/\\])+/, '');
-    const path = join(this.publicRoot, relative);
+    let path = join(this.publicRoot, relative);
+
+    // SPA 回退机制：若路径不存在且非 API / SSE 接口，自动回退到 /index.html 杜绝 404
     if (!path.startsWith(this.publicRoot) || !existsSync(path)) {
-      response.writeHead(404);
-      response.end('Not found');
-      return;
+      const fallbackPath = join(this.publicRoot, 'index.html');
+      if (
+        !url.pathname.startsWith('/api/')
+        && !url.pathname.startsWith('/events')
+        && !url.pathname.startsWith('/logs')
+        && existsSync(fallbackPath)
+      ) {
+        path = fallbackPath;
+      } else {
+        response.writeHead(404);
+        response.end('Not found');
+        return;
+      }
     }
     const headers = {
       'Content-Type': CONTENT_TYPES[extname(path)] || 'application/octet-stream',

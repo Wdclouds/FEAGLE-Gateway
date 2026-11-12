@@ -8,9 +8,10 @@ import {
   initControlPlane, startScheduler, requestApproval, getTaskCtx,
   listPersonas, hasPendingConfirm, listJobs, toolAllowedForChat,
   listChannelSandboxes, ensureChannelSandbox, updateChannelSandbox,
-  getMemberProfiles, updateMemberProfile,
+  deleteChannelSandbox, getMemberProfiles, updateMemberProfile,
 } from './control.js';
-import { getAllTools } from './tools.js';
+import { dialogManager } from './dialog.js';
+import { getAllTools, registerCustomTool, unregisterTool } from './tools.js';
 import type { WxInboundPkt } from './protocol.js';
 
 const seen = new Map<string, number>(); // 消息 ID 去重（防 bridge 重发）
@@ -137,7 +138,47 @@ const server = createServer((req, res) => {
         name: t.name,
         description: t.description,
         parameters: t.parameters,
+        builtin: ['web_search', 'group_remind', 'palace_memo'].includes(t.name),
       })),
+    });
+  }
+
+  // 1.1 动态注册自定义工具
+  if (req.method === 'POST' && req.url === '/api/tools') {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 65536) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(raw);
+        if (!body.name || !body.description) {
+          return json(400, { error: 'name_and_description_required' });
+        }
+        const created = registerCustomTool(body);
+        return json(201, {
+          ok: true,
+          tool: {
+            name: created.name,
+            description: created.description,
+            parameters: created.parameters,
+            builtin: false,
+          },
+        });
+      } catch {
+        return json(400, { error: 'bad_body' });
+      }
+    });
+    return;
+  }
+
+  // 1.2 动态删除自定义工具
+  const toolDeleteMatch = (req.url || '').match(/^\/api\/tools\/([^/?]+)$/);
+  if (req.method === 'DELETE' && toolDeleteMatch) {
+    const toolName = decodeURIComponent(toolDeleteMatch[1]);
+    const ok = unregisterTool(toolName);
+    return json(ok ? 200 : 400, {
+      ok,
+      name: toolName,
+      message: ok ? '工具已移除' : '内置核心工具不可删除',
     });
   }
 
@@ -146,12 +187,62 @@ const server = createServer((req, res) => {
     return json(200, { ok: true, channels: listChannelSandboxes() });
   }
 
+  // 2.1 新建社群沙箱
+  if (req.method === 'POST' && req.url === '/api/channels') {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > 262144) req.destroy(); });
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(raw);
+        const chatId = String(body.chatId || '').trim();
+        if (!chatId) return json(400, { error: 'chatId_required' });
+        const sb = ensureChannelSandbox(chatId);
+        if (body.name || body.personaText || body.rulesText || body.tools) {
+          updateChannelSandbox(chatId, body);
+        }
+        return json(201, { ok: true, chatId, sandbox: sb });
+      } catch {
+        return json(400, { error: 'bad_body' });
+      }
+    });
+    return;
+  }
+
   // 3. 群聊沙箱成员列表
   const membersMatch = (req.url || '').match(/^\/api\/channels\/([^/?]+)\/members$/);
   if (req.method === 'GET' && membersMatch) {
     const chatId = decodeURIComponent(membersMatch[1]);
     const members = getMemberProfiles(chatId);
     return json(200, { ok: true, chatId, members });
+  }
+
+  // 3.1 创新点呈现：15分钟自然衰减会话环状态与手动重置
+  const sessionMatch = (req.url || '').match(/^\/api\/channels\/([^/?]+)\/session$/);
+  if (sessionMatch) {
+    const chatId = decodeURIComponent(sessionMatch[1]);
+    if (req.method === 'GET') {
+      return json(200, {
+        ok: true,
+        chatId,
+        remainingTtlSec: dialogManager.getRemainingTtlSec(chatId),
+        turns: dialogManager.getTurns(chatId),
+      });
+    }
+    if (req.method === 'POST') {
+      dialogManager.resetSession(chatId);
+      return json(200, { ok: true, chatId, reset: true });
+    }
+  }
+
+  // 3.2 创新点呈现：群聊背景感知环（最近 20 条无需 @Nox 的普通流水）
+  const bgMatch = (req.url || '').match(/^\/api\/channels\/([^/?]+)\/background$/);
+  if (bgMatch && req.method === 'GET') {
+    const chatId = decodeURIComponent(bgMatch[1]);
+    return json(200, {
+      ok: true,
+      chatId,
+      backgroundText: dialogManager.getGroupBackground(chatId, 20),
+    });
   }
 
   // 4. 更新特定群成员画像/角色标签
@@ -173,7 +264,7 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // 5. 单个社群沙箱详情与配置更新
+  // 5. 单个社群沙箱详情与配置更新 / 删除
   const channelMatch = (req.url || '').match(/^\/api\/channels\/([^/?]+)$/);
   if (channelMatch) {
     const chatId = decodeURIComponent(channelMatch[1]);
@@ -183,6 +274,7 @@ const server = createServer((req, res) => {
         ok: true,
         sandbox: {
           chatId: sb.chatId,
+          name: sb.name,
           dir: sb.dir,
           personaText: sb.personaText,
           rulesText: sb.rulesText,
@@ -203,6 +295,7 @@ const server = createServer((req, res) => {
             ok: true,
             sandbox: {
               chatId: updated.chatId,
+              name: updated.name,
               personaText: updated.personaText,
               rulesText: updated.rulesText,
               tools: updated.tools,
@@ -213,6 +306,11 @@ const server = createServer((req, res) => {
         }
       });
       return;
+    }
+
+    if (req.method === 'DELETE') {
+      const ok = deleteChannelSandbox(chatId);
+      return json(ok ? 200 : 404, { ok, chatId });
     }
   }
 

@@ -2,8 +2,9 @@
  * Control Plane v2.0 —— 审批双通道 / Persona / Cron / 审计
  * 零新增容器、零新增依赖（node:sqlite + fetch）。
  */
-import { appendFileSync, existsSync, statSync, renameSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync, statSync, renameSync, readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { config, isGroup } from './config.js';
 import { db, trace } from './db.js';
 import { quickBatch } from './sanitizer.js';
@@ -195,6 +196,7 @@ export interface MemberProfile {
 
 export interface ChannelSandbox {
   chatId: string;
+  name?: string;
   dir: string;
   personaText: string;
   rulesText: string;
@@ -224,6 +226,20 @@ function readFileCached(filePath: string): string | null {
   }
 }
 
+/** 尝试从微信桥接数据库 contacts / entities 表反查真实微信群名称 */
+function resolveRealGroupName(chatId: string): string {
+  try {
+    const dbPath = join(process.cwd(), 'data', 'wechat', 'mapping.sqlite');
+    if (!existsSync(dbPath)) return '';
+    const mappingDb = new DatabaseSync(dbPath);
+    const row = mappingDb.prepare('SELECT name FROM contacts WHERE talker = ?').get(chatId) as { name?: string } | undefined;
+    if (row?.name) return row.name;
+    const entityRow = mappingDb.prepare("SELECT nickname FROM entities WHERE protocol_id = ? AND kind = 'group'").get(chatId) as { nickname?: string } | undefined;
+    if (entityRow?.nickname) return entityRow.nickname;
+  } catch {}
+  return '';
+}
+
 /** 确保并自动脚手架群沙箱目录与四个基础文件 */
 export function ensureChannelSandbox(chatId: string): ChannelSandbox {
   const baseDir = config.channelsDir;
@@ -232,6 +248,18 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
 
   if (!existsSync(chatDir)) {
     mkdirSync(chatDir, { recursive: true });
+  }
+
+  const metaPath = join(chatDir, 'meta.json');
+  let name = '';
+  if (existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+      name = meta.name || '';
+    } catch { /* 容错 */ }
+  }
+  if (!name) {
+    name = resolveRealGroupName(chatId);
   }
 
   const personaPath = join(chatDir, 'persona.md');
@@ -272,11 +300,12 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
     members = JSON.parse(raw);
   } catch { /* 容错 */ }
 
-  return { chatId, dir: chatDir, personaText, rulesText, tools, members };
+  return { chatId, name: name || undefined, dir: chatDir, personaText, rulesText, tools, members };
 }
 
 export interface ChannelSummary {
   chatId: string;
+  name?: string;
   tools: string[];
   memberCount: number;
   hasPersona: boolean;
@@ -294,6 +323,7 @@ export function listChannelSandboxes(): ChannelSummary[] {
         const sb = ensureChannelSandbox(entry.name);
         list.push({
           chatId: entry.name,
+          name: sb.name,
           tools: sb.tools,
           memberCount: Object.keys(sb.members).length,
           hasPersona: Boolean(sb.personaText),
@@ -309,9 +339,19 @@ export function listChannelSandboxes(): ChannelSummary[] {
 
 export function updateChannelSandbox(
   chatId: string,
-  updates: { personaText?: string; rulesText?: string; tools?: string[] }
+  updates: { name?: string; personaText?: string; rulesText?: string; tools?: string[] }
 ): ChannelSandbox {
   const sb = ensureChannelSandbox(chatId);
+  if (typeof updates.name === 'string') {
+    const metaPath = join(sb.dir, 'meta.json');
+    let meta: Record<string, any> = {};
+    if (existsSync(metaPath)) {
+      try { meta = JSON.parse(readFileSync(metaPath, 'utf-8')); } catch {}
+    }
+    meta.name = updates.name.trim();
+    writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+    sb.name = meta.name;
+  }
   if (typeof updates.personaText === 'string') {
     writeFileSync(join(sb.dir, 'persona.md'), updates.personaText, 'utf-8');
     sb.personaText = updates.personaText;
@@ -325,6 +365,18 @@ export function updateChannelSandbox(
     sb.tools = updates.tools;
   }
   return sb;
+}
+
+export function deleteChannelSandbox(chatId: string): boolean {
+  const baseDir = config.channelsDir;
+  const chatDir = join(baseDir, chatId);
+  if (!existsSync(chatDir)) return false;
+  try {
+    rmSync(chatDir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function getMemberProfiles(chatId: string): Record<string, MemberProfile> {

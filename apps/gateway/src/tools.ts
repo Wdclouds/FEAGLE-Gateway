@@ -353,6 +353,49 @@ export async function executeToolCall(
   }
 }
 
+export function unregisterTool(name: string): boolean {
+  if (['web_search', 'group_remind', 'palace_memo'].includes(name)) {
+    return false; // 内置核心工具不可删除
+  }
+  return toolRegistry.delete(name);
+}
+
+export function registerCustomTool(def: {
+  name: string;
+  description: string;
+  parameters?: any;
+  endpoint?: string;
+}): GatewayTool {
+  const customTool: GatewayTool = {
+    name: def.name,
+    description: def.description,
+    parameters: def.parameters || {
+      type: 'object',
+      properties: {
+        input: { type: 'string', description: '输入参数或操作内容' },
+      },
+    },
+    execute: async (args: any, ctx: ToolContext) => {
+      if (def.endpoint) {
+        try {
+          const res = await fetch(def.endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ args, ctx }),
+          });
+          const text = await res.text();
+          return `[${def.name} 执行结果] ${text}`;
+        } catch (err: any) {
+          return `[${def.name} 调用失败] ${err?.message || String(err)}`;
+        }
+      }
+      return `[自定义工具 ${def.name}] 已接收调用：${JSON.stringify(args)}`;
+    },
+  };
+  registerTool(customTool);
+  return customTool;
+}
+
 export function toOpenAiTools(tools: GatewayTool[]): any[] {
   return tools.map((t) => ({
     type: 'function',

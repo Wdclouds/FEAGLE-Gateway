@@ -24,6 +24,9 @@ __pycache__/
 coverage/
 dist/
 target/
+*.tsbuildinfo
+apps/web/vite.config.js
+apps/web/vite.config.d.ts
 apps/desktop/src-tauri/target/
 apps/android-agent/.gradle/
 apps/android-agent/**/build/

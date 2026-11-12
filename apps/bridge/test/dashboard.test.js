@@ -375,3 +375,114 @@ test('dashboard exposes conversations REST API with filtering, status mutation, 
   assert.equal(statusUpdates.length, 3);
 });
 
+test('dashboard transparently proxies /api/tools, /api/channels and /api/gateway to Gateway server', async (t) => {
+  const { createServer } = await import('node:http');
+  let receivedGwPath = '';
+  let receivedGwMethod = '';
+  let receivedGwBody = '';
+
+  // 1. 模拟 Gateway HTTP 服务
+  const mockGateway = createServer((req, res) => {
+    receivedGwPath = req.url || '';
+    receivedGwMethod = req.method || '';
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      receivedGwBody = body;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, proxiedPath: receivedGwPath, method: receivedGwMethod, body }));
+    });
+  });
+
+  await new Promise((resolve) => mockGateway.listen(0, '127.0.0.1', resolve));
+  const gwPort = mockGateway.address().port;
+  process.env.GATEWAY_PORT = String(gwPort);
+
+  t.after(() => {
+    mockGateway.close();
+    delete process.env.GATEWAY_PORT;
+  });
+
+  // 2. 启动 Dashboard
+  const state = new RuntimeState();
+  const dashboard = new DashboardServer({
+    state,
+    host: '127.0.0.1',
+    port: 0,
+  });
+  await dashboard.start();
+  t.after(() => dashboard.stop());
+  const { port } = dashboard.server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  // 3. 测试 /api/tools 代理
+  const toolsRes = await fetch(`${base}/api/tools`);
+  assert.equal(toolsRes.status, 200);
+  const toolsData = await toolsRes.json();
+  assert.equal(toolsData.ok, true);
+  assert.equal(receivedGwPath, '/api/tools');
+
+  // 4. 测试 /api/channels/:chatId 代理 (带 POST body)
+  const channelRes = await fetch(`${base}/api/channels/group123%40chatroom`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tools: ['web_search'] }),
+  });
+  assert.equal(channelRes.status, 200);
+  assert.equal(receivedGwPath, '/api/channels/group123%40chatroom');
+  assert.equal(receivedGwMethod, 'POST');
+  assert.match(receivedGwBody, /web_search/);
+
+  // 5. 测试 /api/gateway/health 代理
+  const healthRes = await fetch(`${base}/api/gateway/health`);
+  assert.equal(healthRes.status, 200);
+  assert.equal(receivedGwPath, '/health');
+
+  // 6. 测试网关不可用时返回 502
+  mockGateway.close();
+  const errorRes = await fetch(`${base}/api/tools`);
+  assert.equal(errorRes.status, 502);
+  const errData = await errorRes.json();
+  assert.equal(errData.error, 'gateway_unavailable');
+});
+
+test('dashboard serves Vue 3 SPA index.html and assets with proper content types', async (t) => {
+  const state = new RuntimeState();
+  const dashboard = new DashboardServer({
+    state,
+    host: '127.0.0.1',
+    port: 0,
+  });
+  await dashboard.start();
+  t.after(() => dashboard.stop());
+  const { port } = dashboard.server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  // 1. GET / 响应 index.html
+  const rootRes = await fetch(`${base}/`);
+  assert.equal(rootRes.status, 200);
+  assert.match(rootRes.headers.get('content-type') || '', /text\/html/);
+  const html = await rootRes.text();
+  assert.match(html, /<div id="app"><\/div>/);
+  assert.match(html, /FEAGLE WxBot 控制台/);
+
+  // 2. GET /index.html
+  const indexRes = await fetch(`${base}/index.html`);
+  assert.equal(indexRes.status, 200);
+  assert.match(indexRes.headers.get('content-type') || '', /text\/html/);
+
+  // 3. GET /downloads/feaglewxbot-agent.apk 确保文件存在且提供下载
+  const apkRes = await fetch(`${base}/downloads/feaglewxbot-agent.apk`);
+  assert.equal(apkRes.status, 200);
+  assert.match(apkRes.headers.get('content-disposition') || '', /feaglewxbot-agent\.apk/);
+
+  // 4. GET /overview 或子路由回退到 index.html (SPA Fallback，绝不 404)
+  const subRes = await fetch(`${base}/overview`);
+  assert.equal(subRes.status, 200);
+  assert.match(subRes.headers.get('content-type') || '', /text\/html/);
+  const subHtml = await subRes.text();
+  assert.match(subHtml, /<div id="app"><\/div>/);
+});
+
+
+
