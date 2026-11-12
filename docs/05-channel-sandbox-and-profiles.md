@@ -57,7 +57,9 @@ data/channels/19827364501@chatroom/
 [
   "web_search",
   "generate_image",
-  "group_remind"
+  "read_wechat_article",
+  "group_remind",
+  "palace_memo"
 ]
 ```
 * **作用**：JSON 数组。精确约束该群在大模型 Function Calling 时允许调用的工具集合。即便某工具在系统全局已注册，若未出现在该群的 `tools.json` 中，大模型也无法调用，物理拦截越权。支持 `["*"]` 开放全量。

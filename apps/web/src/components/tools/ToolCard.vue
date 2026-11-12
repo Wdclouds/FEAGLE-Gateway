@@ -12,7 +12,7 @@ const emit = defineEmits<{
 }>();
 
 const isBuiltin = computed(() => {
-  return ['web_search', 'group_remind', 'palace_memo', 'generate_image'].includes(props.tool.name);
+  return ['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'].includes(props.tool.name);
 });
 
 function getSecurityLevel(name: string) {
@@ -20,6 +20,7 @@ function getSecurityLevel(name: string) {
   if (name === 'group_remind') return { level: '核心内置', desc: '社群定时提醒入库' };
   if (name === 'palace_memo') return { level: '核心内置', desc: 'SQLite 记忆宫殿持久化' };
   if (name === 'generate_image') return { level: '核心内置', desc: '大模型生图与微信发送' };
+  if (name === 'read_wechat_article') return { level: '核心内置', desc: '公众号/网页文章解析阅读' };
   return { level: '自定义扩展', desc: 'Webhook 外部接口 / 扩展动作' };
 }
 

@@ -200,7 +200,7 @@ export async function directChat(
   const msgs: Array<{ role: string; content: any; tool_calls?: any; tool_call_id?: string; name?: string }> = [
     {
       role: 'system',
-      content: `${personaSysPrompt}\n你在微信里回复用户，保持简短（一般不超过 150 字），纯文本不用 Markdown。`,
+      content: `${personaSysPrompt}\n你在微信里回复用户，日常表达精炼自然，纯文本不用 Markdown。若用户分享微信公众号文章卡片（含有 [链接] 及 mp.weixin.qq.com）或文章链接，主动调用 read_wechat_article 读取正文全文后再作解答、提炼干货并展开探讨；分析长文章时条理清晰分段阐述。`,
     },
   ];
 

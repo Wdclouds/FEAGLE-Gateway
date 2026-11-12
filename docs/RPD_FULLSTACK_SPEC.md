@@ -79,7 +79,8 @@ FEAGLE WxBot 确立了五大核心架构哲学：
 │ │   ├─ web_search (Bing 实时检索)                      │
 │ │   ├─ group_remind (定时提醒调度 jobs)                │
 │ │   ├─ palace_memo (Mnemosyne 记忆存取)                │
-│ │   └─ generate_image (Gemini Imagen 生图与直发)       │
+│ │   ├─ generate_image (Gemini Imagen 生图与直发)       │
+│ │   └─ read_wechat_article (公众号/卡片文章免登解析)  │
 │ ├─ 控制面 (control.ts): 沙箱、人设、Cron、审批、成员画像 │
 │ └─ 存储底座:                                           │
 │     ├─ SQLite: data/gateway.db (WAL 模式)              │
@@ -220,6 +221,7 @@ FEAGLE WxBot 确立了五大核心架构哲学：
 │ group_remind    │ 核心内置 (状态写)│ 解析相对/绝对时间，注册 SQLite jobs│
 │ palace_memo     │ 核心内置 (持久化)│ 读写 Mnemosyne 记忆宫殿与本地备忘 │
 │ generate_image  │ 核心内置 (直发出)│ Google Imagen 生图，微信直发图片  │
+│ read_wechat_article │ 核心内置 (只读)│ 公众号原生卡片与文章免登录正文解析│
 └─────────────────┴──────────────────┴───────────────────────────────────┘
 ```
 
@@ -249,6 +251,15 @@ FEAGLE WxBot 确立了五大核心架构哲学：
   2. 落地存储为文件：`data/generated-images/gen-${Date.now()}-${rand}.png`（典型大小 1.3MB，避免在 Node 进程间传递巨型 Base64 字符串引爆内存）。
   3. 构建微信出站批次（`batch = { c: ctx.chatId, seq: [{ img: localFilePath, d: 300 }] }`），直接向 `config.bridgeOutUrl`（6192 端口）发起异步下发。
   4. 向 LLM 上下文返回成功确认，模型在下一步回复中输出友好的自然语言收尾，实现“图片+说明”连贯下发。
+
+#### 工具 5：微信公众号文章与原生卡片解析 (`read_wechat_article`)
+* **参数契约**：`{ url: string }`
+* **微信原生卡片（AppMsg XML 消息类型 49）解析链路**：
+  1. 用户在微信客户端直接转发公众号卡片（而非手工复制 URL）时，底层触发微信 AppMsg 协议（type 49, sub-type 5/1）。
+  2. Android Hook 适配器（`Wechat8078Adapter.java:980`）拦截后提取 `<title>`、`<des>` 与标准 `<url>`，构造为 `[链接] 标题\n描述\nURL` 传入网关。
+  3. L1 路由器识别公众号链接，或模型在人设提示下自主触发 `read_wechat_article` 工具。
+  4. 网关使用桌面端 Chrome User-Agent 直接向 WeChat SSR 公开页面发起轻量 GET 请求，**无需微信登录态与 Cookie** 即可获取 `#js_content` 正文。
+  5. 经过 DOM 剥离、HTML Entity 解码及 12,000 字上限截断，将干净正文注入 LLM 会话上下文，实现免人工复制、直接转发即读。
 
 ### 4.3 技能热拔插与硬指令零隐患注销规范 (Hot-Plug Specification)
 为了满足未来从 GitHub 或外部生态引入 Skills，且必须保证**“装上即用、关掉即焚、源头零残留”**，确立如下架构标准：

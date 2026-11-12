@@ -28,7 +28,13 @@ test('ensureChannelSandbox scaffolds persona.md, rules.md, tools.json, and membe
   assert.ok(existsSync(join(chatDir, 'tools.json')));
   assert.ok(existsSync(join(chatDir, 'members.json')));
 
-  assert.deepEqual(sb.tools, ['web_search', 'group_remind', 'palace_memo']);
+  assert.deepEqual(sb.tools, [
+    'web_search',
+    'group_remind',
+    'palace_memo',
+    'generate_image',
+    'read_wechat_article',
+  ]);
   assert.deepEqual(sb.members, {});
 
   // 清理测试目录

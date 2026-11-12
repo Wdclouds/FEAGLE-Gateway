@@ -11,6 +11,8 @@ import {
   searchBing,
   toOpenAiTools,
   webSearchTool,
+  readWechatArticleTool,
+  fetchWechatArticle,
 } from '../dist/tools.js';
 import { config } from '../dist/config.js';
 import { listJobs, deleteJob, initControlPlane } from '../dist/control.js';
@@ -174,3 +176,30 @@ test('webSearchTool executes live search query and returns structured text', asy
   assert.ok(typeof res === 'string');
   assert.match(res, /搜索“Node\.js”/);
 });
+
+test('readWechatArticleTool parses article URL and extracts content', async () => {
+  const ctx = {
+    chatId: 'sample_article@chatroom',
+    senderWxid: 'wxid_test',
+    senderName: '测试员',
+    isGroup: true,
+    isAdmin: false,
+  };
+
+  // 1. 无效/空链接防御
+  const emptyRes = await readWechatArticleTool.execute({ url: '' }, ctx);
+  assert.match(emptyRes, /请提供有效的微信公众号文章链接/);
+
+  // 2. 真实公众平台文章测试或卡片链接提取
+  const testUrl = 'https://mp.weixin.qq.com/s/ha4_D5Aj4as0l3hUIeGUKQ';
+  const article = await fetchWechatArticle(testUrl);
+  assert.ok(article.title.length > 0);
+  assert.ok(article.account.length > 0);
+  assert.ok(article.content.length > 0);
+
+  // 3. 执行工具返回结构化文本
+  const toolRes = await readWechatArticleTool.execute({ url: `[链接] 微信文章推荐\n${testUrl}` }, ctx);
+  assert.match(toolRes, /【微信公众号文章】/);
+  assert.match(toolRes, /全文内容如下/);
+});
+

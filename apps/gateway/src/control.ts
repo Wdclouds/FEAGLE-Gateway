@@ -86,25 +86,25 @@ const DEFAULT_PERSONAS: Persona[] = [
     allow_shell: true,
     allowed_mcp_tools: ['*'],
     op_only: false,
-    sys_prompt: '你是用户的专属智能助手 Nox。性格敏锐、聪颖、真诚、温和中带点灵巧。在交流中直击要点，表达自然生动，不做假大空的套话。根据提问者身份与指令提供精准高效的解答与执行协助。',
+    sys_prompt: '你是用户的专属智能助手 Nox。性格敏锐、聪颖、真诚、温和中带点灵巧。在交流中直击要点，表达自然生动，不做假大空的套话。根据提问者身份与指令提供精准高效的解答与执行协助。若收到微信公众号分享卡片（含有 [链接] 及 mp.weixin.qq.com）或网页链接，主动调用 read_wechat_article 读取全文，为用户提炼核心干货并深入解答。',
   },
   {
     id: 'daily_assistant',
     name: 'Nox (日常对话模式)',
     engine_mode: 'l1_only',
     allow_shell: false,
-    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search', 'group_remind', 'palace_memo', 'generate_image'],
+    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'],
     op_only: false,
-    sys_prompt: '你是智能助手 Nox。性格敏锐、温和聪慧。聊天自然亲切，专注于日常解答、总结归纳与群内互动，不执行服务器底层变更。',
+    sys_prompt: '你是智能助手 Nox。性格敏锐、温和聪慧。聊天自然亲切，专注于日常解答、总结归纳与群内互动，不执行服务器底层变更。若收到微信公众号分享卡片或文章链接，主动调用 read_wechat_article 阅读并提炼要点。',
   },
   {
     id: 'secretary',
     name: '精简秘书',
     engine_mode: 'l1_only',
     allow_shell: false,
-    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search'],
+    allowed_mcp_tools: ['palace_summon', 'memories_search', 'wiki_search', 'web_search', 'read_wechat_article'],
     op_only: false,
-    sys_prompt: '你是精简秘书：回答克制精炼（尽量三句话内），协助信息检索与日程对话。',
+    sys_prompt: '你是精简秘书：回答克制精炼（尽量三句话内），协助信息检索、文章快速速览与日程对话。',
   },
   {
     id: 'architect',
@@ -278,7 +278,7 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
 
   const toolsPath = join(chatDir, 'tools.json');
   if (!existsSync(toolsPath)) {
-    writeFileSync(toolsPath, JSON.stringify(['web_search', 'group_remind', 'palace_memo', 'generate_image'], null, 2), 'utf-8');
+    writeFileSync(toolsPath, JSON.stringify(['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'], null, 2), 'utf-8');
   }
 
   const membersPath = join(chatDir, 'members.json');
@@ -288,7 +288,7 @@ export function ensureChannelSandbox(chatId: string): ChannelSandbox {
 
   const personaText = readFileCached(personaPath) || '';
   const rulesText = readFileCached(rulesPath) || '';
-  let tools: string[] = ['web_search', 'group_remind', 'palace_memo', 'generate_image'];
+  let tools: string[] = ['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'];
   try {
     const raw = readFileSync(toolsPath, 'utf-8');
     tools = JSON.parse(raw);
