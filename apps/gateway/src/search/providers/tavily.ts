@@ -34,7 +34,16 @@ export class TavilySearchProvider implements SearchProvider {
     this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
   }
 
-  async search(query: string, maxResults = 5, timeoutMs = 8000): Promise<SearchResultItem[]> {
+  async search(
+    query: string,
+    maxResults = 5,
+    timeoutMs = 8000,
+    options?: {
+      topic?: 'general' | 'news';
+      includeDomains?: string[];
+      days?: number;
+    }
+  ): Promise<SearchResultItem[]> {
     if (!this.isAvailable()) return [];
 
     const now = Date.now();
@@ -52,19 +61,31 @@ export class TavilySearchProvider implements SearchProvider {
       const timer = setTimeout(() => ctl.abort(), timeoutMs);
 
       try {
+        const bodyPayload: Record<string, any> = {
+          api_key: key,
+          query: query.trim(),
+          search_depth: 'basic',
+          include_answer: false,
+          max_results: maxResults,
+        };
+
+        if (options?.topic) {
+          bodyPayload.topic = options.topic;
+        }
+        if (options?.includeDomains && options.includeDomains.length > 0) {
+          bodyPayload.include_domains = options.includeDomains;
+        }
+        if (options?.days && options.days > 0) {
+          bodyPayload.days = options.days;
+        }
+
         const res = await fetch('https://api.tavily.com/search', {
           method: 'POST',
           signal: ctl.signal,
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            api_key: key,
-            query: query.trim(),
-            search_depth: 'basic',
-            include_answer: false,
-            max_results: maxResults,
-          }),
+          body: JSON.stringify(bodyPayload),
         });
 
         clearTimeout(timer);

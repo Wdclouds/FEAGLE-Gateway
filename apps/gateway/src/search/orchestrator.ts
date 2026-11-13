@@ -1,9 +1,15 @@
 import type { SearchProvider, SearchResultItem, SourceTier, SearchAuditRecord } from './types.js';
 import { BingSearchProvider } from './providers/bing.js';
 import { TavilySearchProvider } from './providers/tavily.js';
+import { HuggingFaceSearchProvider } from './providers/huggingface.js';
+
+export function isAiModelQuery(query: string): boolean {
+  return /(模型|大模型|开源|发布|权重|多模态|参数|架构|vlm|llm|deepseek|qwen|gemini|claude|llama|step|gpt|huggingface|mistral|gemma|minimax|glm|model)/i.test(query);
+}
 
 // ============ 来源分级与质量控制 ============
 export const T0_DOMAIN_SUFFIXES = [
+  // 1. 政府、国际组织、学术权威期刊与预印本
   '.gov',
   '.gov.cn',
   '.edu',
@@ -20,9 +26,36 @@ export const T0_DOMAIN_SUFFIXES = [
   'acm.org',
   'cell.com',
   'thelancet.com',
+
+  // 2. 顶级 AI 机构官方发布阵地与模型/代码仓库 (一手源头)
+  'huggingface.co',
+  'github.com',
+  'github.io',
+  'modelscope.cn',
+  'openai.com',
+  'anthropic.com',
+  'deepseek.com',
+  'blog.google',
+  'deepmind.google',
+  'ai.google.dev',
+  'googleblog.com',
+  'meta.com',
+  'ai.meta.com',
+  'microsoft.com',
+  'apple.com',
+  'qwenlm.github.io',
+  'zhipuai.cn',
+  'bigmodel.cn',
+  'moonshot.cn',
+  'minimax.io',
+  '01.ai',
+  'baichuan-ai.com',
+  'mistral.ai',
+  'cohere.com',
 ];
 
 export const T1_DOMAINS = new Set([
+  // 1. 综合严肃与财经主流媒体
   'xinhuanet.com',
   'news.cn',
   'people.com.cn',
@@ -32,6 +65,8 @@ export const T1_DOMAINS = new Set([
   'yicai.com',
   'thepaper.cn',
   'jiemian.com',
+  'cls.cn',
+  'wallstreetcn.com',
   'reuters.com',
   'bloomberg.com',
   'ft.com',
@@ -40,6 +75,22 @@ export const T1_DOMAINS = new Set([
   'bbc.com',
   'nytimes.com',
   'nikkei.com',
+
+  // 2. 权威科技垂直媒体 (一手首发报道与专业评测)
+  'jiqizhixin.com',
+  'qbitai.com',
+  '36kr.com',
+  'ithome.com',
+  'geekpark.net',
+  'huxiu.com',
+  'pingwest.com',
+  'techcrunch.com',
+  'theverge.com',
+  'wired.com',
+  'venturebeat.com',
+  'arstechnica.com',
+  'engadget.com',
+  'zdnet.com',
 ]);
 
 export const DEFAULT_BLOCKLIST_DOMAINS = new Set([
@@ -199,9 +250,14 @@ export class SearchOrchestrator {
 
     // 若传入 Tavily Key 则注册
     const keys = options?.tavilyApiKeys || options?.tavilyApiKey;
+    let tavilyProvider: TavilySearchProvider | undefined;
     if (keys && (Array.isArray(keys) ? keys.length > 0 : Boolean(keys))) {
-      this.registerProvider(new TavilySearchProvider(keys));
+      tavilyProvider = new TavilySearchProvider(keys);
+      this.registerProvider(tavilyProvider);
     }
+
+    // 注册 Hugging Face 开源模型与官方卡片探测器
+    this.registerProvider(new HuggingFaceSearchProvider(tavilyProvider));
 
     if (options?.priority && options.priority.length > 0) {
       this.priority = options.priority;
@@ -268,6 +324,17 @@ export class SearchOrchestrator {
     let usedProvider = 'none';
     let fallbackOccurred = false;
 
+    // 2.5 若检测为 AI / 模型 / 开源发布类查询，优先并行触发 Hugging Face 专属探测
+    let hfItems: SearchResultItem[] = [];
+    if (isAiModelQuery(query)) {
+      const hfProvider = this.providers.get('huggingface');
+      if (hfProvider && hfProvider.isAvailable()) {
+        try {
+          hfItems = await hfProvider.search(query, 2, Math.min(timeoutMs, 5000));
+        } catch { /* 容错 */ }
+      }
+    }
+
     // 3. 按优先级编排执行与故障转移
     for (let i = 0; i < this.priority.length; i++) {
       const pName = this.priority[i];
@@ -279,13 +346,16 @@ export class SearchOrchestrator {
       try {
         const rawResults = await provider.search(query, maxResults * 2, timeoutMs);
         if (rawResults && rawResults.length > 0) {
-          usedProvider = pName;
+          usedProvider = hfItems.length > 0 ? `${pName}+huggingface` : pName;
           if (i > 0) {
             fallbackOccurred = true;
           }
 
+          // 合并 Hugging Face 官方一手模型与通用检索结果
+          const merged = [...hfItems, ...rawResults];
+
           // 4. 清洗与过滤：注入防护、域名黑名单过滤、信源分级
-          const sanitized = rawResults
+          const sanitized = merged
             .filter((item) => !isBlockedDomain(item.url))
             .map((item) => ({
               ...item,

@@ -7,6 +7,7 @@ export * from './orchestrator.js';
 export * from './verifier.js';
 export * from './providers/bing.js';
 export * from './providers/tavily.js';
+export * from './providers/huggingface.js';
 
 // 单例搜索编排器
 export const globalSearchOrchestrator = new SearchOrchestrator({

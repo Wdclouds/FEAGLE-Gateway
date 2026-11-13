@@ -52,7 +52,16 @@ export interface SearchResultItem {
 export interface SearchProvider {
   name: string;
   isAvailable(): boolean;
-  search(query: string, maxResults?: number, timeoutMs?: number): Promise<SearchResultItem[]>;
+  search(
+    query: string,
+    maxResults?: number,
+    timeoutMs?: number,
+    options?: {
+      topic?: 'general' | 'news';
+      includeDomains?: string[];
+      days?: number;
+    }
+  ): Promise<SearchResultItem[]>;
 }
 
 export interface SearchAuditRecord {

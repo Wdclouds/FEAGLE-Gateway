@@ -100,8 +100,14 @@ test('deduplicateSources collapses identical domains and syndicated titles', () 
 test('classifySourceTier and isBlockedDomain filter low-quality and recognize T0/T1', () => {
   assert.equal(classifySourceTier('http://www.gov.cn/zhengce/2026-11/content.htm'), 'T0');
   assert.equal(classifySourceTier('https://arxiv.org/abs/2611.12345'), 'T0');
+  assert.equal(classifySourceTier('https://huggingface.co/deepseek-ai/DeepSeek-V3'), 'T0');
+  assert.equal(classifySourceTier('https://github.com/stepfun-ai/step3'), 'T0');
+  assert.equal(classifySourceTier('https://blog.google/technology/ai/gemini-2/'), 'T0');
+  assert.equal(classifySourceTier('https://openai.com/news/claude-update/'), 'T0');
   assert.equal(classifySourceTier('https://xinhuanet.com/politics/2026-11/12/c_1.htm'), 'T1');
   assert.equal(classifySourceTier('https://caixin.com/economy/index.html'), 'T1');
+  assert.equal(classifySourceTier('https://www.jiqizhixin.com/articles/2026-11-12'), 'T1');
+  assert.equal(classifySourceTier('https://36kr.com/p/261112345'), 'T1');
   assert.equal(classifySourceTier('https://example-blog.org/post/1'), '其他');
 
   assert.equal(isBlockedDomain('https://baijiahao.baidu.com/s?id=123'), true);
@@ -270,3 +276,35 @@ test('fact_check tool executes text query verification and validates sandbox gua
   );
   assert.match(blocked, /\[安全拦截\]/);
 });
+
+// 11. AI / 开源模型查询意图与 Hugging Face 专属探测 (AI Model Intent & Hugging Face Provider)
+test('isAiModelQuery detects model releases and HuggingFaceSearchProvider returns T0 evidence', async () => {
+  const { isAiModelQuery } = await import('../dist/search/orchestrator.js');
+  const { HuggingFaceSearchProvider } = await import('../dist/search/providers/huggingface.js');
+
+  assert.equal(isAiModelQuery('阶跃星辰发布全新 Step-3 多模态大模型'), true);
+  assert.equal(isAiModelQuery('DeepSeek-V3 开源权重已上线'), true);
+  assert.equal(isAiModelQuery('今天天气真不错'), false);
+
+  // Mock Tavily provider
+  const mockTavily = {
+    isAvailable: () => true,
+    search: async (q) => [
+      {
+        title: 'stepfun-ai/step3 · Hugging Face',
+        url: 'https://huggingface.co/stepfun-ai/step3',
+        snippet: 'Step3 is our cutting-edge multimodal reasoning model...',
+        provider: 'tavily',
+      },
+    ],
+  };
+
+  const hfProvider = new HuggingFaceSearchProvider(mockTavily);
+  const items = await hfProvider.search('Step-3 模型发布');
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].provider, 'huggingface');
+  assert.equal(items[0].tier, 'T0');
+  assert.ok(items[0].url.includes('huggingface.co'));
+});
+

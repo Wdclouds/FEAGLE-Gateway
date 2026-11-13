@@ -123,12 +123,13 @@ ${trimmed}
 ${evidenceBlocks}
 
 【状态机硬性判定标准】：
-- 已证实：有权威官方（T0）或主流严肃媒体（T1）信源明确确认主张的关键事实、时间与口径；
+- 已证实：有权威官方一手阵地（T0，如 Hugging Face、GitHub 官方仓库、厂商官方博客/公告页）或主流严肃/科技媒体（T1）信源明确确认主张的关键事实、主体与动作；
 - 部分证实：主张的核心方向属实，但在时间、数字口径或细节范围上存在出入，或证据仅佐证了部分要点；
 - 与可靠来源冲突：检索到的权威信源与该主张明确矛盾（如官方辟谣、数字严重夸大、张冠李戴、翻炒过时旧闻）；
 - 未核实：检索结果内容无关、属于非一手且无依据的传闻、或信源不足以交叉验证。
 
 严禁把“未检索到反驳”擅自判为已证实！未核实不可当成证实。
+若外部信源中包含来自 Hugging Face (huggingface.co) 或 GitHub 官方模型卡片/代码仓库（T0），应充分采信为一手客观铁证。
 请输出纯 JSON，严禁解释或 Markdown：
 {
   "status": "已证实|部分证实|与可靠来源冲突|未核实",
@@ -237,9 +238,12 @@ ${evidenceBlocks}
     } else if (verifiedCount >= 1 && unverifiedCount === 0) {
       credibility = '高';
       recommendation = '主要事实主张均获权威信源佐证，内容真实度高。';
-    } else if (unverifiedCount > verifiedCount) {
+    } else if (verifiedCount >= 1 && unverifiedCount > 0) {
+      credibility = '中';
+      recommendation = '核心发布事实已获官方或权威信源印证；部分自测指标或技术细节暂缺第三方独立复测，可作为参考。';
+    } else {
       credibility = '低';
-      recommendation = '文章充斥未获独立信源佐证的内容，偏向观点输出或自媒体营销，建议核验一手公告。';
+      recommendation = '关键主张暂未在全网检索到独立信源印证；若属于当日突发首发，建议核验厂商官方发布页或 GitHub 动态。';
     }
 
     // 生成微信精炼三段式文本
