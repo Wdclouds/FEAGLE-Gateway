@@ -97,25 +97,31 @@ const TOOLS = [
   },
   {
     name: 'memories_search',
-    description: '纯语义向量检索（memories/search）。palace_summon 无命中或需要更大范围时用。',
+    description: '纯语义向量检索（memories/search）。palace_summon 无命中或需要更大范围时用。默认屏蔽测试数据并遵守会话空间隔离。',
     inputSchema: {
       type: 'object',
       properties: {
         query: { type: 'string', description: '语义检索词' },
         top_k: { type: 'integer', description: '返回条数，默认 10', default: 10 },
         category_filter: { type: 'string', description: '类别过滤（session/knowledge/worklog/preference/project/pitfall）' },
+        include_test: { type: 'boolean', description: '是否包含测试记忆，默认 false', default: false },
       },
       required: ['query'],
     },
-    run: (a) => mnFetch('/api/v1/memories/search', {
-      method: 'POST',
-      body: JSON.stringify({
-        user_id: MN_USER,
-        query: a.query,
-        top_k: a.top_k ?? 10,
-        ...(a.category_filter ? { category_filter: a.category_filter } : {}),
-      }),
-    }),
+    run: async (a) => {
+      const ctx = await getActiveTaskContext();
+      return mnFetch('/api/v1/memories/search', {
+        method: 'POST',
+        body: JSON.stringify({
+          user_id: MN_USER,
+          query: a.query,
+          top_k: a.top_k ?? 10,
+          include_test: Boolean(a.include_test),
+          ...(ctx?.chat ? { chat_id: ctx.chat } : {}),
+          ...(a.category_filter ? { category_filter: a.category_filter } : {}),
+        }),
+      });
+    },
   },
   {
     name: 'memories_create',
@@ -215,12 +221,34 @@ const TOOLS = [
       body: JSON.stringify({ user_id: MN_USER, query: a.query, max_results: a.max_results ?? 8 }),
     }),
   },
+  {
+    name: 'memory_reflect',
+    description: '触发一次记忆回归（热度衰减/回温、L1-L4 层级迁移、time_drawer 流转），用于维护记忆新陈代谢。',
+    inputSchema: { type: 'object', properties: {} },
+    run: () => mnFetch(`/api/v1/reflect?${qs({ user_id: MN_USER })}`, { method: 'POST' }),
+  },
+  {
+    name: 'palace_lifecycle',
+    description: '执行记忆宫殿卷宗生命周期管理（短期过期撤架 + 永久卷热度保护）。',
+    inputSchema: { type: 'object', properties: {} },
+    run: () => mnFetch('/api/v1/palace/lifecycle', { method: 'POST' }),
+  },
 ];
 
 const toolList = TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 
 // ---- 人设写权限过滤（蓝图破局二：MCP 层执行点）----
-const WRITE_TOOLS = new Set(['memories_create', 'memory_update', 'memory_delete', 'palace_pin', 'palace_archive', 'palace_refine', 'palace_extract']);
+async function getActiveTaskContext() {
+  try {
+    const ctxRes = await fetch(`${GW_BASE}/internal/context`, { signal: AbortSignal.timeout(2000) });
+    const ctx = await ctxRes.json();
+    return ctx?.active ? ctx : null;
+  } catch {
+    return null;
+  }
+}
+
+const WRITE_TOOLS = new Set(['memories_create', 'memory_update', 'memory_delete', 'palace_pin', 'palace_archive', 'palace_refine', 'palace_extract', 'memory_reflect', 'palace_lifecycle']);
 const GW_BASE = process.env.GATEWAY_BASE_URL || 'http://127.0.0.1:6185';
 
 async function personaWriteAllowed(toolName) {
