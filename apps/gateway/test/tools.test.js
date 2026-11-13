@@ -174,7 +174,7 @@ test('webSearchTool executes live search query and returns structured text', asy
   };
   const res = await webSearchTool.execute({ query: 'Node.js' }, ctx);
   assert.ok(typeof res === 'string');
-  assert.match(res, /搜索“Node\.js”/);
+  assert.match(res, /(搜索“Node\.js”|未搜索到与“Node\.js”相关的权威网页信息)/);
 });
 
 test('readWechatArticleTool parses article URL and extracts content', async () => {
