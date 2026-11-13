@@ -42,7 +42,7 @@ export const config = {
   // 统一大模型后端：Antigravity 反代（Gemini 3.8 Flash，支持原生视觉、单轮与多轮智能）
   antigravity: {
     baseUrl: get('ANTIGRAVITY_BASE_URL', 'http://127.0.0.1:8045/v1'),
-    apiKey: get('ANTIGRAVITY_KEY', 'sk-853a7382bdef4d50acd0a01c62906b87'),
+    apiKey: get('ANTIGRAVITY_KEY', ''),
     model: get('ANTIGRAVITY_MODEL', 'gemini-3.8-flash'),
     timeoutMs: getNum('ANTIGRAVITY_TIMEOUT_MS', 15000),
   },

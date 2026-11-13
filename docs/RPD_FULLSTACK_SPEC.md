@@ -437,7 +437,7 @@ BRIDGE_OUT_URL=http://127.0.0.1:6192/gw/outbound
 
 # 大模型后端凭据 (Antigravity Proxy)
 ANTIGRAVITY_BASE_URL=http://127.0.0.1:8045/v1
-ANTIGRAVITY_KEY=sk-853a7382bdef4d50acd0a01c62906b87
+ANTIGRAVITY_KEY=sk-your-antigravity-api-key
 ANTIGRAVITY_MODEL=gemini-3.8-flash
 ANTIGRAVITY_TIMEOUT_MS=15000
 
