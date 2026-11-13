@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import * as readline from 'node:readline';
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
