@@ -197,10 +197,10 @@ test('readWechatArticleTool parses article URL and extracts content', async () =
   assert.ok(article.account.length > 0);
   assert.ok(article.content.length > 0);
 
-  // 3. 执行工具返回结构化文本（含事实核验三段式报告与原文选段）
+  // 3. 执行工具返回结构化文本（解析微信文章正文与关键内容）
   const toolRes = await readWechatArticleTool.execute({ url: `[链接] 微信文章推荐\n${testUrl}` }, ctx);
   assert.match(toolRes, /【文章速览】/);
-  assert.match(toolRes, /【关键事实核验】/);
-  assert.match(toolRes, /【综合研判】/);
+  assert.match(toolRes, /【文章正文内容】/);
+  assert.ok(toolRes.includes(article.title) || toolRes.includes('微信公众号'));
 });
 

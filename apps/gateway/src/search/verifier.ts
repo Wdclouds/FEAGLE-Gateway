@@ -210,13 +210,11 @@ ${evidenceBlocks}
     content: string;
     url?: string;
   }): Promise<ArticleVerificationReport> {
-    const claims = await this.extractClaims(article.title, article.content, 3);
-    const claimResults: ClaimVerificationResult[] = [];
-
-    for (const c of claims) {
-      const res = await this.verifyClaim(c);
-      claimResults.push(res);
-    }
+    const claims = await this.extractClaims(article.title, article.content, 2);
+    // 并行核验关键主张，消除串行网络排队延迟
+    const claimResults: ClaimVerificationResult[] = await Promise.all(
+      claims.map((c) => this.verifyClaim(c))
+    );
 
     // 计算综合研判指标
     let verifiedCount = 0;

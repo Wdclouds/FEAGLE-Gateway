@@ -52,34 +52,44 @@ export async function antigravityChatResponse(
   opts: { maxTokens: number; temperature: number; timeoutMs?: number; tools?: any[] }
 ): Promise<ChatResponse | null> {
   if (!config.antigravity.apiKey) return null;
-  try {
-    const payload: Record<string, any> = {
-      model: config.antigravity.model,
-      messages,
-      temperature: opts.temperature,
-      max_tokens: opts.maxTokens,
-      stream: false,
-    };
-    if (opts.tools && opts.tools.length > 0) {
-      payload.tools = opts.tools;
-    }
-    const res = await postJson(
-      `${config.antigravity.baseUrl}/chat/completions`,
-      config.antigravity.apiKey,
-      payload,
-      opts.timeoutMs ?? config.antigravity.timeoutMs
-    );
-    const msg = res.choices?.[0]?.message;
-    if (!msg) return null;
-    return {
-      content: msg.content ? String(msg.content).trim() : null,
-      tool_calls: msg.tool_calls,
-      message: msg,
-    };
-  } catch (err: any) {
-    console.error(`[antigravityChatResponse error] ${err?.message || String(err)}`);
-    return null; // 反代挂/超时/限流 → 降级
+  const timeout = opts.timeoutMs ?? config.antigravity.timeoutMs;
+  const payload: Record<string, any> = {
+    model: config.antigravity.model,
+    messages,
+    temperature: opts.temperature,
+    max_tokens: opts.maxTokens,
+    stream: false,
+  };
+  if (opts.tools && opts.tools.length > 0) {
+    payload.tools = opts.tools;
   }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await postJson(
+        `${config.antigravity.baseUrl}/chat/completions`,
+        config.antigravity.apiKey,
+        payload,
+        timeout
+      );
+      const msg = res.choices?.[0]?.message;
+      if (!msg) return null;
+      return {
+        content: msg.content ? String(msg.content).trim() : null,
+        tool_calls: msg.tool_calls,
+        message: msg,
+      };
+    } catch (err: any) {
+      console.error(`[antigravityChatResponse attempt ${attempt + 1} error] ${err?.message || String(err)}`);
+      // 若是网络波动或反代临时抖动（非主动超时中止），静默等待 1 秒后自动重试一次
+      if (attempt === 0 && !err?.message?.includes('aborted')) {
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
 }
 
 /** Antigravity 反代单轮调用（Gemini 3.8 Flash）。失败返回 null，由调用方降级。 */
@@ -201,7 +211,7 @@ export async function directChat(
   const msgs: Array<{ role: string; content: any; tool_calls?: any; tool_call_id?: string; name?: string }> = [
     {
       role: 'system',
-      content: `${personaSysPrompt}\n你在微信里回复用户，日常表达精炼自然，纯文本不用 Markdown。若用户分享微信公众号文章卡片（含有 [链接] 及 mp.weixin.qq.com）或文章链接，主动调用 read_wechat_article 读取正文全文与多源事实核验，并按【文章速览】【关键事实核验】【综合研判】三段式结构作答。若用户询问最新时效性新闻、事实真伪、数据、政策或对可靠性有较高要求的场景，主动调用 fact_check 或 web_search 进行多源查证后再回答，未核实则明确标注未核实，严禁胡编乱造。分析长内容时条理清晰分段阐述。`,
+      content: `${personaSysPrompt}\n你在微信里回复用户，日常表达自然生动、精炼得体，微信纯文本不使用复杂的 Markdown 排版（多用换行与符号列表）。若用户分享微信公众号文章卡片（含有 [链接] 及 mp.weixin.qq.com）或文章链接，主动调用 read_wechat_article 读取正文内容，并紧扣用户的具体问题（如介绍架构、提炼观点、解析技术细节、总结重点等）进行深入浅出的专业解答。仅当用户明确询问真伪、求证新闻、或文章具有重大争议事实时，再调用 fact_check 进行多源查证。若用户询问最新时效性新闻、开源模型首发或需要事实依据时，主动调用 fact_check 或 web_search 进行查证，未核实则如实标注，严禁胡编乱造。分析长内容时条理清晰分段阐述。`,
     },
   ];
 
@@ -234,7 +244,7 @@ export async function directChat(
     const resp = await antigravityChatResponse(msgs, {
       maxTokens: 1500,
       temperature: 0.7,
-      timeoutMs: 35_000,
+      timeoutMs: 60_000,
       tools: currentRound < MAX_ROUNDS ? tools : undefined,
     });
 

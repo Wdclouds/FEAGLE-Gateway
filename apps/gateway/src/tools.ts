@@ -102,17 +102,23 @@ export const webSearchTool: GatewayTool = {
 
 export const factCheckTool: GatewayTool = {
   name: 'fact_check',
-  description: '对具体的事件、新闻、时效声明、数字、政策、人事变动或可疑事实主张进行多源联网检索与事实核验，输出核验状态（已证实/部分证实/与可靠来源冲突/未核实）、权威信源与原文证据。',
+  description: '对具体的事件、新闻、时效声明、数字、政策、人事变动、微信文章链接或可疑事实主张进行多源联网检索与事实核验，输出核验状态（已证实/部分证实/与可靠来源冲突/未核实）、权威信源与原文证据。',
   parameters: {
     type: 'object',
     properties: {
-      claim: { type: 'string', description: '待核验的具体客观事实主张、新闻事件或数据' },
+      claim: { type: 'string', description: '待核验的具体客观事实主张、新闻事件、数据或微信文章链接（mp.weixin.qq.com/s/...）' },
     },
     required: ['claim'],
   },
   execute: async (args: { claim: string }) => {
     const claim = (args.claim || '').trim();
-    if (!claim) return '请提供待核验的事实主张。';
+    if (!claim) return '请提供待核验的事实主张或文章链接。';
+    if (claim.includes('mp.weixin.qq.com/s')) {
+      const art = await fetchWechatArticle(claim);
+      if (art.error) return `读取待核验文章失败: ${art.error}`;
+      const report = await globalFactVerifier.verifyArticle(art);
+      return report.rawTextReport;
+    }
     return await globalFactVerifier.verifyTextQuery(claim);
   },
 };
@@ -486,7 +492,7 @@ export async function fetchWechatArticle(url: string): Promise<{
 
 export const readWechatArticleTool: GatewayTool = {
   name: 'read_wechat_article',
-  description: '解析并阅读微信公众号文章的完整正文内容，并自动执行多源联网事实核验。当用户发送微信公众号分享卡片（带有 [链接] 及 mp.weixin.qq.com）、文章链接、或提及要查看/核验微信文章时调用。',
+  description: '解析并阅读微信公众号文章的完整正文内容。当用户发送微信公众号分享卡片（带有 [链接] 及 mp.weixin.qq.com）、文章链接、或提及要阅读/讲解/总结微信文章时调用。',
   parameters: {
     type: 'object',
     properties: {
@@ -494,10 +500,14 @@ export const readWechatArticleTool: GatewayTool = {
         type: 'string',
         description: '微信公众号文章完整 URL 链接（如 https://mp.weixin.qq.com/s/...）',
       },
+      verify: {
+        type: 'boolean',
+        description: '是否需要对文章中的事实主张进行多源联网事实核验。仅在用户明确质疑真实性或求证时开启，默认 false',
+      },
     },
     required: ['url'],
   },
-  execute: async (args: { url: string }) => {
+  execute: async (args: { url: string; verify?: boolean }) => {
     const rawUrl = String(args.url || '').trim();
     if (!rawUrl) return '请提供有效的微信公众号文章链接。';
     const result = await fetchWechatArticle(rawUrl);
@@ -505,30 +515,38 @@ export const readWechatArticleTool: GatewayTool = {
       return `读取微信公众号文章失败: ${result.error}`;
     }
 
-    // 事实核验状态机与多源交叉检索
-    let factReport = '';
-    try {
-      const report = await globalFactVerifier.verifyArticle({
-        title: result.title,
-        account: result.account,
-        publishTime: result.publishTime,
-        content: result.content,
-        url: rawUrl,
-      });
-      factReport = report.rawTextReport;
-    } catch {
-      factReport = `⚠️【事实核验提示】外部搜索检索服务异常，未能完成自动化多源核对，当前仅呈现原文。`;
+    const lines: string[] = [
+      `📰【文章速览】`,
+      `• 标题：《${result.title}》`,
+      `• 来源公众号: ${result.account || '微信公众号'}${result.publishTime ? ` | 发布时间: ${result.publishTime}` : ''}`,
+      `• 链接: ${rawUrl}`,
+    ];
+
+    if (args.verify) {
+      try {
+        const report = await globalFactVerifier.verifyArticle({
+          title: result.title,
+          account: result.account,
+          publishTime: result.publishTime,
+          content: result.content,
+          url: rawUrl,
+        });
+        lines.push('', report.rawTextReport);
+      } catch {
+        lines.push('', '⚠️【事实核验提示】外部搜索检索服务异常，未能完成自动化多源核对。');
+      }
     }
 
-    return [
-      factReport,
+    lines.push(
       '',
       `----------------------------------------`,
-      `【文章正文内容选段】`,
-      result.content.slice(0, 6000),
+      `【文章正文内容】`,
+      result.content.slice(0, 4500) + (result.content.length > 4500 ? '\n\n[...篇幅较长，已提取前 4500 字核心正文...]' : ''),
       `----------------------------------------`,
-      `【回复要求】：严格基于上述【关键事实核验】与【综合研判】结果，按 300 字内三段式（文章速览 / 关键事实核验 / 综合研判）回答用户，明确标注证实/冲突/未核实状态，不得脱离核验结果擅自下结论。`,
-    ].filter(Boolean).join('\n');
+      `【处理指南】：请务必紧扣用户的真实诉求（如介绍架构、提炼观点、解析技术细节、总结要点、拆解逻辑等）进行深入浅出、条理清晰的解答。若用户对文章真实性存疑，可按需调用 fact_check 进行多源查证。`
+    );
+
+    return lines.join('\n');
   },
 };
 
