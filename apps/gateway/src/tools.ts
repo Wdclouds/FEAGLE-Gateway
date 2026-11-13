@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { config } from './config.js';
 import { addJob, getPersona, getSession } from './control.js';
 import { remember, semanticSearch } from './mnemosyne.js';
+import { globalSearchOrchestrator, globalFactVerifier } from './search/index.js';
 
 export interface ToolContext {
   chatId: string;
@@ -79,7 +80,7 @@ export async function searchBing(
 
 export const webSearchTool: GatewayTool = {
   name: 'web_search',
-  description: '联网搜索实时信息、最新资讯、新闻或事实核验。',
+  description: '联网搜索实时信息、最新资讯、新闻或事实依据。具备多源智能调度、域名质量清洗与通稿去重能力。',
   parameters: {
     type: 'object',
     properties: {
@@ -90,12 +91,29 @@ export const webSearchTool: GatewayTool = {
   execute: async (args: { query: string }) => {
     const q = (args.query || '').trim();
     if (!q) return '请输入有效的搜索关键词。';
-    const results = await searchBing(q, 5);
-    if (!results.length) return `未搜索到与“${q}”相关的网页信息。`;
+    const res = await globalSearchOrchestrator.search(q, { maxResults: 5 });
+    if (!res.items.length) return `未搜索到与“${q}”相关的权威网页信息。`;
     return [
-      `搜索“${q}”的实时结果：`,
-      ...results.map((r, i) => `${i + 1}. 【${r.title}】\n   摘要: ${r.snippet}\n   链接: ${r.url}`),
+      `搜索“${res.query}”的实时结果（来源: ${res.usedProvider}）：`,
+      ...res.items.map((r, i) => `${i + 1}. 【${r.title}】[${r.tier || '其他'}]\n   摘要: ${r.snippet}\n   链接: ${r.url}`),
     ].join('\n');
+  },
+};
+
+export const factCheckTool: GatewayTool = {
+  name: 'fact_check',
+  description: '对具体的事件、新闻、时效声明、数字、政策、人事变动或可疑事实主张进行多源联网检索与事实核验，输出核验状态（已证实/部分证实/与可靠来源冲突/未核实）、权威信源与原文证据。',
+  parameters: {
+    type: 'object',
+    properties: {
+      claim: { type: 'string', description: '待核验的具体客观事实主张、新闻事件或数据' },
+    },
+    required: ['claim'],
+  },
+  execute: async (args: { claim: string }) => {
+    const claim = (args.claim || '').trim();
+    if (!claim) return '请提供待核验的事实主张。';
+    return await globalFactVerifier.verifyTextQuery(claim);
   },
 };
 
@@ -468,7 +486,7 @@ export async function fetchWechatArticle(url: string): Promise<{
 
 export const readWechatArticleTool: GatewayTool = {
   name: 'read_wechat_article',
-  description: '解析并阅读微信公众号文章的完整正文内容。当用户发送微信公众号分享卡片（带有 [链接] 及 mp.weixin.qq.com）、文章链接、或提及要查看/总结微信文章时调用。',
+  description: '解析并阅读微信公众号文章的完整正文内容，并自动执行多源联网事实核验。当用户发送微信公众号分享卡片（带有 [链接] 及 mp.weixin.qq.com）、文章链接、或提及要查看/核验微信文章时调用。',
   parameters: {
     type: 'object',
     properties: {
@@ -486,16 +504,30 @@ export const readWechatArticleTool: GatewayTool = {
     if (result.error) {
       return `读取微信公众号文章失败: ${result.error}`;
     }
+
+    // 事实核验状态机与多源交叉检索
+    let factReport = '';
+    try {
+      const report = await globalFactVerifier.verifyArticle({
+        title: result.title,
+        account: result.account,
+        publishTime: result.publishTime,
+        content: result.content,
+        url: rawUrl,
+      });
+      factReport = report.rawTextReport;
+    } catch {
+      factReport = `⚠️【事实核验提示】外部搜索检索服务异常，未能完成自动化多源核对，当前仅呈现原文。`;
+    }
+
     return [
-      `【微信公众号文章】《${result.title}》`,
-      `• 来源公众号: ${result.account}`,
-      result.publishTime ? `• 发布时间: ${result.publishTime}` : '',
-      `• 正文字数: ${result.content.length} 字`,
-      `• 全文内容如下:`,
+      factReport,
+      '',
       `----------------------------------------`,
-      result.content,
+      `【文章正文内容选段】`,
+      result.content.slice(0, 6000),
       `----------------------------------------`,
-      `请根据上述文章内容，结合用户意图进行精准解答、提炼核心干货、并可发散思考。`,
+      `【回复要求】：严格基于上述【关键事实核验】与【综合研判】结果，按 300 字内三段式（文章速览 / 关键事实核验 / 综合研判）回答用户，明确标注证实/冲突/未核实状态，不得脱离核验结果擅自下结论。`,
     ].filter(Boolean).join('\n');
   },
 };
@@ -563,7 +595,7 @@ export async function executeToolCall(
 }
 
 export function unregisterTool(name: string): boolean {
-  if (['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article'].includes(name)) {
+  if (['web_search', 'group_remind', 'palace_memo', 'generate_image', 'read_wechat_article', 'fact_check'].includes(name)) {
     return false; // 内置核心工具不可删除
   }
   return toolRegistry.delete(name);
@@ -616,8 +648,9 @@ export function toOpenAiTools(tools: GatewayTool[]): any[] {
   }));
 }
 
-// 默认注册五大标准核心工具
+// 默认注册六大标准核心工具
 registerTool(webSearchTool);
+registerTool(factCheckTool);
 registerTool(groupRemindTool);
 registerTool(palaceMemoTool);
 registerTool(generateImageTool);

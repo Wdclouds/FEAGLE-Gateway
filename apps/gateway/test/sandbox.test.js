@@ -30,6 +30,7 @@ test('ensureChannelSandbox scaffolds persona.md, rules.md, tools.json, and membe
 
   assert.deepEqual(sb.tools, [
     'web_search',
+    'fact_check',
     'group_remind',
     'palace_memo',
     'generate_image',

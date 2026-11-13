@@ -7,13 +7,19 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 // 轻量 .env 解析（避免 dotenv 依赖）
 function loadEnv(): Record<string, string> {
   const out: Record<string, string> = {};
-  try {
-    const raw = readFileSync(join(ROOT, '.env'), 'utf8');
-    for (const line of raw.split('\n')) {
-      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
-      if (m && !line.trim().startsWith('#')) out[m[1]] = m[2];
-    }
-  } catch { /* .env 缺失时全靠进程环境变量 */ }
+  const paths = [
+    join(ROOT, '.env'),
+    join(ROOT, '..', '..', '.env'),
+  ];
+  for (const p of paths) {
+    try {
+      const raw = readFileSync(p, 'utf8');
+      for (const line of raw.split('\n')) {
+        const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/);
+        if (m && !line.trim().startsWith('#') && !out[m[1]]) out[m[1]] = m[2];
+      }
+    } catch { /* 容错 */ }
+  }
   return { ...out, ...Object.fromEntries(Object.entries(process.env).filter(([, v]) => v !== undefined)) } as Record<string, string>;
 }
 
@@ -64,6 +70,17 @@ export const config = {
   // 数据库与日志
   dbPath: get('DB_PATH', join(ROOT, 'data', 'gateway.db')),
   channelsDir: get('CHANNELS_DIR', join(ROOT, 'data', 'channels')),
+
+  // 联网检索与事实核验 (多源编排)
+  search: {
+    tavilyApiKeys: get('TAVILY_API_KEYS', get('TAVILY_API_KEY', ''))
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    priority: get('SEARCH_PROVIDER_PRIORITY', 'tavily,bing').split(',').map((s) => s.trim()).filter(Boolean),
+    timeoutMs: getNum('SEARCH_TIMEOUT_MS', 8000),
+    maxClaims: getNum('SEARCH_MAX_CLAIMS', 4),
+  },
 
   // 微信出口批次默认参数
   out: {

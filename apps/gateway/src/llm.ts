@@ -201,7 +201,7 @@ export async function directChat(
   const msgs: Array<{ role: string; content: any; tool_calls?: any; tool_call_id?: string; name?: string }> = [
     {
       role: 'system',
-      content: `${personaSysPrompt}\n你在微信里回复用户，日常表达精炼自然，纯文本不用 Markdown。若用户分享微信公众号文章卡片（含有 [链接] 及 mp.weixin.qq.com）或文章链接，主动调用 read_wechat_article 读取正文全文后再作解答、提炼干货并展开探讨；分析长文章时条理清晰分段阐述。`,
+      content: `${personaSysPrompt}\n你在微信里回复用户，日常表达精炼自然，纯文本不用 Markdown。若用户分享微信公众号文章卡片（含有 [链接] 及 mp.weixin.qq.com）或文章链接，主动调用 read_wechat_article 读取正文全文与多源事实核验，并按【文章速览】【关键事实核验】【综合研判】三段式结构作答。若用户询问最新时效性新闻、事实真伪、数据、政策或对可靠性有较高要求的场景，主动调用 fact_check 或 web_search 进行多源查证后再回答，未核实则明确标注未核实，严禁胡编乱造。分析长内容时条理清晰分段阐述。`,
     },
   ];
 
