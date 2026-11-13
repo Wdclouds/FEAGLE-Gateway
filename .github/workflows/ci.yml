@@ -36,6 +36,26 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  gateway:
+    name: Gateway and DSH ACP guards
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/gateway/package-lock.json
+      - run: npm ci
+      - name: Check MCP bridge syntax
+        run: |
+          node --check mcp/mnemosyne-mcp.mjs
+          node --check mcp/gateway-ctl-mcp.mjs
+      - run: npm test
+
   protocol:
     name: Shared protocol contract
     runs-on: ubuntu-latest

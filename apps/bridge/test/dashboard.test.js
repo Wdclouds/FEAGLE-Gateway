@@ -471,17 +471,45 @@ test('dashboard serves Vue 3 SPA index.html and assets with proper content types
   assert.equal(indexRes.status, 200);
   assert.match(indexRes.headers.get('content-type') || '', /text\/html/);
 
-  // 3. GET /downloads/feaglewxbot-agent.apk 确保文件存在且提供下载
-  const apkRes = await fetch(`${base}/downloads/feaglewxbot-agent.apk`);
-  assert.equal(apkRes.status, 200);
-  assert.match(apkRes.headers.get('content-disposition') || '', /feaglewxbot-agent\.apk/);
-
-  // 4. GET /overview 或子路由回退到 index.html (SPA Fallback，绝不 404)
+  // 3. GET /overview 或子路由回退到 index.html (SPA Fallback，绝不 404)
   const subRes = await fetch(`${base}/overview`);
   assert.equal(subRes.status, 200);
   assert.match(subRes.headers.get('content-type') || '', /text\/html/);
   const subHtml = await subRes.text();
   assert.match(subHtml, /<div id="app"><\/div>/);
+});
+
+test('dashboard serves APK download with attachment header and returns 404 when missing', async (t) => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+
+  const tempRoot = mkdtempSync(join(tmpdir(), 'feagle-dash-apk-'));
+  t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+  writeFileSync(join(tempRoot, 'index.html'), '<div id="app"></div>', 'utf8');
+  mkdirSync(join(tempRoot, 'downloads'), { recursive: true });
+  writeFileSync(join(tempRoot, 'downloads', 'feaglewxbot-agent.apk'), Buffer.from('PK\x03\x04mock-apk'));
+
+  const state = new RuntimeState();
+  const dashboard = new DashboardServer({
+    state,
+    host: '127.0.0.1',
+    port: 0,
+    publicRoot: tempRoot,
+  });
+  await dashboard.start();
+  t.after(() => dashboard.stop());
+  const { port } = dashboard.server.address();
+  const base = `http://127.0.0.1:${port}`;
+
+  const apkRes = await fetch(`${base}/downloads/feaglewxbot-agent.apk`);
+  assert.equal(apkRes.status, 200);
+  assert.match(apkRes.headers.get('content-type') || '', /application\/vnd\.android\.package-archive/);
+  assert.match(apkRes.headers.get('content-disposition') || '', /feaglewxbot-agent\.apk/);
+  assert.equal(Buffer.from(await apkRes.arrayBuffer()).toString('utf8'), 'PK\x03\x04mock-apk');
+
+  const missingApkRes = await fetch(`${base}/downloads/missing-agent.apk`);
+  assert.equal(missingApkRes.status, 404);
 });
 
 

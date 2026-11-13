@@ -1533,13 +1533,14 @@ export class DashboardServer {
     const relative = normalize(requested).replace(/^([/\\])+/, '');
     let path = join(this.publicRoot, relative);
 
-    // SPA 回退机制：若路径不存在且非 API / SSE 接口，自动回退到 /index.html 杜绝 404
+    // SPA 回退机制：若路径不存在且非 API / SSE / 下载目录接口，自动回退到 /index.html 杜绝 404
     if (!path.startsWith(this.publicRoot) || !existsSync(path)) {
       const fallbackPath = join(this.publicRoot, 'index.html');
       if (
         !url.pathname.startsWith('/api/')
         && !url.pathname.startsWith('/events')
         && !url.pathname.startsWith('/logs')
+        && !url.pathname.startsWith('/downloads/')
         && existsSync(fallbackPath)
       ) {
         path = fallbackPath;

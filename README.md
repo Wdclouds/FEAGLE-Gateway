@@ -1,7 +1,7 @@
 # FEAGLE WxBot (FEAGLE-Gateway)
 
 <p align="center">
-  <b>物理硬件级隔离 · 官方微信 8.0.79 / 8.0.78 原生 LSPosed 驱动 · 四层漏斗智能网关 · DeepSeek Harness (ACP) 引擎 · Mnemosyne OS v9.1.3 · 全量 90 项单测守护</b>
+  <b>物理硬件级隔离 · 官方微信 8.0.79 / 8.0.78 原生 LSPosed 驱动 · 四层漏斗智能网关 · DeepSeek Harness (ACP) 引擎 · Mnemosyne OS v9.1.3 · 全量 91 项单测守护</b>
 </p>
 
 <p align="center">
@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Protocol-OneBot%20v11%20%7C%20ACP%20v1%20%7C%20MCP-cyan" alt="Protocol">
   <img src="https://img.shields.io/badge/Runtime-Node.js%2022%2B%20%26%2024%2B-green?logo=node.js" alt="Runtime">
   <img src="https://img.shields.io/badge/Console-Vue%203.5%20(OLED%20Dark)-orange?logo=vuedotjs" alt="Vue">
-  <img src="https://img.shields.io/badge/Tests-90%2F90%20PASS%20(100%25)-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/Tests-91%2F91%20PASS%20(100%25)-brightgreen" alt="Tests">
   <img src="https://img.shields.io/badge/License-MIT-orange" alt="License">
 </p>
 
@@ -233,12 +233,12 @@ npm --prefix apps/gateway start
 
 ---
 
-## 🧪 自动化测试验证 (90 项 100% 通过)
+## 🧪 自动化测试验证 (91 项 100% 通过)
 
-系统拥有完整的自动化测试套件，全面覆盖协议双向转译、DSH ACP 生命周期与预审批/容灾、沙箱隔离、检索核验等核心路径：
+系统拥有完整的自动化测试套件，覆盖协议双向转译、DSH ACP 生命周期与预审批/容灾、沙箱隔离、检索核验等核心路径：
 
 ```bash
-# 1. 验证 Bridge 协议与传输层 (59 项全绿)
+# 1. 验证 Bridge 协议与传输层 (60 项全绿)
 npm --prefix apps/bridge test
 
 # 2. 验证 Gateway 漏斗、DSH ACP 驱动、沙箱与工具层 (31 项全绿)
@@ -247,10 +247,10 @@ npm --prefix apps/gateway test
 
 全部测试运行结果：
 ```text
-✔ apps/bridge:  59/59 tests pass (0 failed, 100% passing)
+✔ apps/bridge:  60/60 tests pass (0 failed, 100% passing)
 ✔ apps/gateway: 31/31 tests pass (0 failed, 100% passing)
 =========================================================
-Total: 90 passed, 0 failed, 0 flakiness
+Total: 91 passed, 0 failed, 0 flakiness
 ```
 
 ---
