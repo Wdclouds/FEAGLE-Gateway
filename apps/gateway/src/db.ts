@@ -7,9 +7,11 @@ import type { TraceEntry } from './protocol.js';
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 export const db = new DatabaseSync(config.dbPath);
-db.exec(`
+db.exec('PRAGMA busy_timeout = 5000;');
+for (let attempt = 0; attempt < 5; attempt++) {
+  try {
+    db.exec(`
 PRAGMA journal_mode = WAL;
-PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS sessions (
   chat_id     TEXT PRIMARY KEY,
   turn_lease  INTEGER NOT NULL DEFAULT 0,   -- 0=空闲 1=占用（同一 chat 同时只有一个任务）
@@ -27,6 +29,12 @@ CREATE TABLE IF NOT EXISTS trace_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_trace_chat ON trace_logs(chat_id, ts DESC);
 `);
+    break;
+  } catch (err: any) {
+    if (attempt === 4 || !String(err?.message || '').includes('locked')) throw err;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1));
+  }
+}
 
 const stmtSession = db.prepare(
   'INSERT INTO sessions(chat_id, updated_at) VALUES(?, ?) ON CONFLICT(chat_id) DO UPDATE SET updated_at = ?'

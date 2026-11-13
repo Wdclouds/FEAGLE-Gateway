@@ -228,8 +228,9 @@ export class DshAcpManager extends EventEmitter {
       NO_PROXY: '127.0.0.1,localhost,100.70.137.52',
     };
 
+    const spawnCwd = existsSync(this.currentCwd) ? this.currentCwd : process.cwd();
     const proc = spawn(config.dsh.nodeBin, [config.dsh.dshBin, '--profile', config.dsh.profile], {
-      cwd: this.currentCwd,
+      cwd: spawnCwd,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -254,6 +255,18 @@ export class DshAcpManager extends EventEmitter {
 
     proc.on('error', (err) => {
       this.emit('log', `spawn error: ${err.message}`);
+      if (this.proc === proc) {
+        this.proc = null;
+        this.initPromise = null;
+        this.chatSessions.clear();
+        this.rl?.close();
+        this.rl = null;
+      }
+      for (const [id, pending] of this.pendingRpc) {
+        clearTimeout(pending.timer);
+        pending.reject(err);
+        this.pendingRpc.delete(id);
+      }
     });
 
     this.rl = readline.createInterface({ input: proc.stdout! });

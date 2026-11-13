@@ -112,6 +112,8 @@ rl.on('line', (line) => {
   const orig = { ...config.dsh };
   config.dsh.nodeBin = process.execPath;
   config.dsh.dshBin = mockPath;
+  config.dsh.defaultCwd = process.cwd();
+  config.dsh.dshHome = tmpdir();
   config.dsh.idleTimeoutMs = 60_000;
   const testChat = `test_dsh_acp_${Date.now()}`;
   setDshSession(testChat, null);
