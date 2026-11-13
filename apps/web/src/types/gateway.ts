@@ -1,6 +1,6 @@
 export interface GatewayHealthStatus {
   ok: boolean;
-  service: 'pi-wx-gateway';
+  service: 'feagle-wx-gateway' | 'pi-wx-gateway';
   inbound?: {
     received: number;
     parsed: number;

@@ -1,7 +1,7 @@
 {
-  "name": "pi-wx-gateway",
-  "version": "0.1.0",
-  "description": "Pi-WeChat-Gateway: 四层漏斗微信网关 (wxbridge -> 规则拦截 -> NIM路由 -> Pi+Mnemosyne -> 双轨出口)",
+  "name": "feagle-wx-gateway",
+  "version": "0.2.0",
+  "description": "FEAGLE-WeChat-Gateway: 四层漏斗微信网关 (wxbridge -> 规则拦截 -> L1路由 -> DSH+Mnemosyne -> 双轨出口)",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

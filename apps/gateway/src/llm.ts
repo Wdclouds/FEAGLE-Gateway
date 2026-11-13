@@ -102,7 +102,7 @@ async function antigravityChat(
 }
 
 const ROUTE_SYS = (isBusy: boolean) =>
-  `你是微信Agent网关路由器。当前Pi状态:${isBusy ? 'BUSY' : 'IDLE'}。
+  `你是微信Agent网关路由器。当前DSH执行引擎状态:${isBusy ? 'BUSY' : 'IDLE'}。
 只输出纯JSON，严禁Markdown代码块或解释：
 {"s":"W|S|X|T|C|R","c":0.9,"g":["翼区名"],"q":"检索词","r":"s为T或R时填中文回复否则null"}
 判定标准：W=用户话没说完在等待；S=对运行中任务的追加引导；X=要求打断当前任务；T=闲聊寒暄可直接回复；C=工程/复杂任务需唤醒Coding Agent；R=额度保护拒单。

@@ -26,7 +26,7 @@ async function main() {
     if (req.method === 'GET' && (req.url === '/health' || req.url === '/status')) {
       return json(200, {
         ok: true,
-        service: 'pi-wx-gateway',
+        service: 'feagle-wx-gateway',
         uptime_s: 10,
         db: { sessions: 1, traces: 5 },
       });
@@ -132,7 +132,7 @@ async function main() {
     const healthRes = await fetch(`${base}/api/gateway/health`);
     assert.equal(healthRes.status, 200);
     const healthJson = await healthRes.json();
-    assert.equal(healthJson.service, 'pi-wx-gateway');
+    assert.equal(healthJson.service, 'feagle-wx-gateway');
     console.log('✔ GET /api/gateway/health -> 200 OK (Proxied to Gateway 127.0.0.1:' + gwPort + '/health)');
 
     // 5. Reverse Proxy: Tools Catalog

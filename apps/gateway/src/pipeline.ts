@@ -2,7 +2,7 @@ import { config, isGroup } from './config.js';
 import { getLease, setLease, trace, touchSession } from './db.js';
 import { routeMessage, distillMemories, directChat, analyzeSentryTranscript } from './llm.js';
 import { summon, semanticSearch, remember, saveCheckpoint, loadCheckpoint } from './mnemosyne.js';
-import { piManager, grantOnce } from './pi-manager.js';
+import { dshManager } from './dsh-manager.js';
 import { buildOutboundBatch, quickBatch, isPromptInjectionOrToxic } from './sanitizer.js';
 import { toCompactLines, getSessionKey } from './protocol.js';
 import type { WxInboundPkt, WxOutboundBatch, MemoryHit } from './protocol.js';
@@ -161,15 +161,26 @@ function flushWindow(sessionKey: string, onFlush: (pkts: WxInboundPkt[]) => void
 }
 
 // ---------- 高危告警路由（通道 B：熔断存档 + /approve 金牌重放） ----------
-piManager.on('hazard', (h: { label: string; cmd: string }) => {
+dshManager.on('hazard', (h: { label: string; cmd: string }) => {
   trace(getTaskCtx()?.chat ?? '-', 'L2', 'hazard_blocked', h, undefined, { risk_flag: 1 });
   recordHazard(h.label, h.cmd); // 存档 (chat + 原始 prompt + cmd)，微信提示 /approve
 });
-piManager.on('granted', (g: { cmd: string }) => {
+dshManager.on('granted', (g: { cmd: string }) => {
   trace(getTaskCtx()?.chat ?? '-', 'L2', 'grant_used', g, undefined, { risk_flag: 2 });
 });
 
-// ---------- 第 2 层：记忆预热 + Pi 执行 ----------
+// ---------- ACP 忙时补充指令队列（替代运行中 steer） ----------
+interface QueuedFollowup {
+  chat: string;
+  promptText: string;
+  memories: MemoryHit[];
+  persona: ReturnType<typeof getPersona>;
+  rid: string;
+  origin?: WxInboundPkt;
+}
+const queuedFollowups = new Map<string, QueuedFollowup>();
+
+// ---------- 第 2 层：记忆预热 + DSH 执行 ----------
 function buildTaskPrompt(pkts: WxInboundPkt[], memories: MemoryHit[], personaPrompt: string, imgDesc?: string | null): string {
   const last = pkts[pkts.length - 1];
   const history = toCompactLines(pkts.slice(0, -1));
@@ -204,8 +215,8 @@ function buildTaskPrompt(pkts: WxInboundPkt[], memories: MemoryHit[], personaPro
     '[当前任务]',
     last.t,
     '',
-    '要求：直接执行任务（可读写工作区文件、跑 shell），完成后输出简洁中文总结；代码与报错保持原样输出，不要改写。',
-    '高危操作铁律：凡涉及删除数据/修改系统配置/重启服务/大范围文件变动的命令，执行前必须先调用 request_high_risk_exec 工具获得用户批准，禁止直接执行。',
+    '要求：直接执行任务（可读写工作区文件、跑 shell、按需调用 mcp__mnemosyne__* 记忆工具），完成后输出简洁中文总结；代码与报错保持原样输出，不要改写。',
+    '高危操作铁律：凡涉及删除数据/修改系统配置/重启服务/大范围文件变动的命令，执行前必须先调用 mcp__gateway-ctl__request_high_risk_exec 工具或等待权限审批获得用户批准，禁止直接执行。',
   ].filter(Boolean).join('\n');
 }
 
@@ -234,20 +245,18 @@ async function runTaskCore(
   rid: string,
   origin?: WxInboundPkt
 ): Promise<void> {
-  if (piManager.busy() || getLease(chat)) {
-    const steered = piManager.steer(promptText.slice(-600));
-    if (!steered) {
-      const busyReply = origin
-        ? formatQuoteReply({
-            senderName: origin.n || origin.u,
-            sourceText: origin.t,
-            replyText: '当前有任务在跑，请稍候或发 /stop 中断。',
-            isGroup: isGroup(chat),
-          })
-        : '当前有任务在跑，请稍候或发 /stop 中断。';
-      await sendToBridge(quickBatch(chat, busyReply, origin && isGroup(chat) ? origin.u : undefined));
-    }
-    trace(chat, 'L2', 'steer_queued', { steered }, undefined, { req_id: rid });
+  if (dshManager.busy() || getLease(chat)) {
+    queuedFollowups.set(chat, { chat, promptText, memories, persona, rid, origin });
+    const busyReply = origin
+      ? formatQuoteReply({
+          senderName: origin.n || origin.u,
+          sourceText: origin.t,
+          replyText: '当前任务正在执行中，已将你的补充任务排队，本轮结束后自动续跑（或发 /stop 中断）。',
+          isGroup: isGroup(chat),
+        })
+      : '当前任务正在执行中，已排队等待本轮结束。';
+    await sendToBridge(quickBatch(chat, busyReply, origin && isGroup(chat) ? origin.u : undefined));
+    trace(chat, 'L2', 'followup_queued', { queued: true }, undefined, { req_id: rid });
     return;
   }
   setLease(chat, true);
@@ -256,8 +265,11 @@ async function runTaskCore(
 
   try {
     const workspace = getSession(chat).workspace;
-    const result = await piManager.prompt(promptText, undefined, workspace !== config.pi.defaultCwd ? workspace : undefined);
-    trace(chat, 'L2', 'pi_done', { ok: result.ok, tools: result.tools.length, ms: result.durationMs }, result.durationMs, { req_id: rid });
+    const result = await dshManager.prompt(promptText, {
+      chatId: chat,
+      workspace: workspace !== config.dsh.defaultCwd ? workspace : undefined,
+    });
+    trace(chat, 'L2', 'dsh_done', { ok: result.ok, tools: result.tools.length, ms: result.durationMs, model: result.modelUsed }, result.durationMs, { req_id: rid });
 
     const replyText = result.ok
       ? result.text || '（任务完成，无文本输出）'
@@ -300,6 +312,13 @@ async function runTaskCore(
   } finally {
     setLease(chat, false);
     taskEnd();
+    const next = queuedFollowups.get(chat);
+    if (next) {
+      queuedFollowups.delete(chat);
+      queueMicrotask(() => {
+        void runTaskCore(next.chat, next.promptText, next.memories, next.persona, next.rid, next.origin);
+      });
+    }
   }
 }
 
@@ -513,7 +532,7 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
   const isGrp = isGroup(chat);
   const sessionKey = getSessionKey(last);
   const rid = last.rid ?? `wx_${Date.now()}`;
-  const busy = piManager.busy() || getLease(chat);
+  const busy = dshManager.busy() || getLease(chat);
   const compactHistory = toCompactLines(pkts);
   const isOp = config.adminWxids.includes(last.u);
   const currentImg = pkts.slice().reverse().find((p) => p.img)?.img;
@@ -529,7 +548,7 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
   const historyTurns = dialogManager.getTurns(chat);
   const groupBg = isGrp ? dialogManager.getGroupBackground(chat) : '';
 
-  // 人设 l1_only：强制不唤醒 Pi，Gemini 3.8 Flash 带人设直答（支持图片直传原生视觉与多轮历史）
+  // 人设 l1_only：强制不唤醒 DSH，Gemini 3.8 Flash 带人设直答（支持图片直传原生视觉与多轮历史）
   if (persona.engine_mode === 'l1_only') {
     const t = Date.now();
     const memBlock = memories.length
@@ -595,7 +614,8 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
       trace(chat, 'L1', 'wait_more', { sessionKey });
       return;
     case 'X': { // 打断
-      piManager.abort();
+      await dshManager.cancel();
+      queuedFollowups.delete(chat);
       setLease(chat, false);
       const xReply = formatQuoteReply({
         senderName: last.n || last.u,
@@ -647,9 +667,8 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
       return;
     }
     case 'S': // 追加引导
-      if (piManager.busy()) {
-        const ok = piManager.steer(compactHistory.slice(-500));
-        trace(chat, 'L1', 'steer', { ok });
+      if (dshManager.busy()) {
+        await runTask(pkts, last, imgDesc);
         return;
       }
       // 不忙时的 S 按 C 处理
@@ -687,8 +706,8 @@ export function wireCronToPipeline(): void {
 export function gatewayStatus() {
   return {
     buffers: Array.from(buffers.keys()),
-    pi: piManager.procInfo(),
-    busy: piManager.busy(),
+    dsh: dshManager.procInfo(),
+    busy: dshManager.busy(),
     admin: config.adminWxids,
     personas: listPersonas().map((p) => ({ id: p.id, mode: p.engine_mode, shell: p.allow_shell })),
     jobs: listJobs().filter((j) => j.enabled === 1).map((j) => ({ id: j.id, next: j.run_at, cron: j.cron_expr })),

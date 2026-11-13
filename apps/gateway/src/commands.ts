@@ -11,7 +11,7 @@ import {
   hasPendingConfirm, resolveApproval, consumeHazard, listJobs, addJob, deleteJob, nextRun,
   setMode, GatewayMode, addBlock, removeBlock, listBlocks
 } from './control.js';
-import { piManager, grantOnce } from './pi-manager.js';
+import { dshManager, grantOnce } from './dsh-manager.js';
 import { quickBatch } from './sanitizer.js';
 import { toCompactLines, getSessionKey } from './protocol.js';
 import type { WxInboundPkt, WxOutboundBatch, MemoryHit } from './protocol.js';
@@ -139,9 +139,9 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
     opOnly: true,
     description: '中断当前正在运行的智能体任务',
     execute: async ({ pkt, send }) => {
-      piManager.abort();
+      await dshManager.cancel();
       setLease(pkt.c, false);
-      await send('🛑 已向智能体进程发送中断指令，任务已取消。');
+      await send('🛑 已向 DSH 发送 session/cancel 中断指令，任务已取消。');
     },
   },
 
@@ -150,10 +150,10 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
     opOnly: true,
     description: '开启全新会话，重置上下文与时效',
     execute: async ({ pkt, send }) => {
-      piManager.newSession();
+      await dshManager.closeChatSession(pkt.c);
       setLease(pkt.c, false);
       dialogManager.resetSession(pkt.c);
-      await send('✨ 已开启新会话（上下文与15分钟会话时效已重置，智能体已重新就绪）。');
+      await send('✨ 已开启新会话（ACP 会话与15分钟上下文时效已重置，DSH 已就绪）。');
     },
   },
 
@@ -162,17 +162,20 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
     opOnly: true,
     description: '获取网关与宿主核心进程状态',
     execute: async ({ pkt, send }) => {
-      const p = piManager.procInfo();
+      const p = dshManager.procInfo();
+      const sid = dshManager.getActiveSessionId(pkt.c);
       const sess = getSession(pkt.c);
       const jobs = listJobs().filter((j) => j.enabled === 1);
       const pend = hasPendingConfirm(pkt.c);
       const ttlSec = dialogManager.getRemainingTtlSec(pkt.c);
       const statusText =
         `👑 【OP 控制台状态】\n` +
-        `• 网关引擎: 运行中 (HTTP 6185)\n` +
+        `• 网关引擎: 运行中 (HTTP 6185 · DSH ACP)\n` +
         `• 会话时效: ${ttlSec > 0 ? `${ttlSec} 秒 (15分钟自动衰减)` : '已归档/新会话'}\n` +
-        `• Pi 状态: ${p.alive ? `PID ${p.pid} (在线 ${Math.round(p.uptimeMs / 1000)}s)` : '已回收 (闲置待命)'}\n` +
-        `• 全局任务: ${piManager.busy() ? '🔴 BUSY (运行中)' : '🟢 IDLE (空闲)'}\n` +
+        `• DSH 状态: ${p.alive ? `PID ${p.pid} (在线 ${Math.round(p.uptimeMs / 1000)}s, 活跃会话 ${p.activeSessions})` : '已回收 (闲置待命)'}\n` +
+        `• 主力模型: ${p.provider}/${p.model}\n` +
+        `• ACP 会话: ${sid ? sid.slice(0, 12) + '...' : '(未创建)'}\n` +
+        `• 全局任务: ${dshManager.busy() ? '🔴 BUSY (运行中)' : '🟢 IDLE (空闲)'}\n` +
         `• 会话租约: ${getLease(pkt.c) ? '🔒 占用' : '🔓 空闲'}\n` +
         `• 当前人设: ${getPersona(sess.persona_id, true, pkt.c).name} (${sess.persona_id})\n` +
         `• 定时任务: ${jobs.length} 个启用中\n` +
@@ -361,12 +364,13 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
     description: '保存当前工程状态与快照入记忆宫殿',
     execute: async ({ pkt, arg, send }) => {
       if (!arg) { await send('用法：/save <标签名>'); return; }
+      const cwd = getSession(pkt.c).workspace || config.dsh.defaultCwd;
       const gitHead = (() => {
-        try { return execSync('git rev-parse HEAD', { cwd: config.pi.defaultCwd, timeout: 3000 }).toString().trim(); }
+        try { return execSync('git rev-parse HEAD', { cwd, timeout: 3000 }).toString().trim(); }
         catch { return 'no-git'; }
       })();
-      piManager.compact();
-      const snapshot = `workspace=${config.pi.defaultCwd}\ngit=${gitHead}\nsaved_at=${new Date().toISOString()}\nrecent=${toCompactLines([pkt]).slice(-300)}`;
+      const sid = dshManager.getActiveSessionId(pkt.c) || 'none';
+      const snapshot = `workspace=${cwd}\ndsh_session=${sid}\ngit=${gitHead}\nsaved_at=${new Date().toISOString()}\nrecent=${toCompactLines([pkt]).slice(-300)}`;
       const ok = await saveCheckpoint(arg, snapshot);
       await send(ok ? `💾 存档完成：${arg}（含 git HEAD ${gitHead.slice(0, 8)}）` : '❌ 存档失败：记忆服务暂时不可用');
     },
@@ -400,8 +404,8 @@ export const HARD_COMMANDS: Record<string, HardCommandDef> = {
       try { ok = statSync(path).isDirectory(); } catch { ok = false; }
       if (!ok) { await send(`❌ 目录不存在或不是有效文件夹：${path}`); return; }
       setWorkspace(pkt.c, path);
-      const killed = piManager.killIfIdle();
-      await send(`📁 工作区已切换为：${path}\n${killed ? '已回收空闲进程，下个任务在新目录下冷启动。' : '当前有任务在跑，切换将在任务结束后生效。'}`);
+      await dshManager.closeChatSession(pkt.c);
+      await send(`📁 工作区已切换为：${path}\n已重置当前 ACP 会话，下个任务将在新目录下自动创建会话。`);
     },
   },
 

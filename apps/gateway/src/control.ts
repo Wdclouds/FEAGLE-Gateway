@@ -24,6 +24,7 @@ export function migrate(): void {
   addColumn('sessions', 'workspace', `TEXT NOT NULL DEFAULT '/opt/FEAGLEwxbot'`);
   addColumn('sessions', 'pending_confirm_id', 'TEXT');
   addColumn('sessions', 'mode', `TEXT NOT NULL DEFAULT 'chat'`); // chat | sentry | mute
+  addColumn('sessions', 'dsh_session', 'TEXT');
   addColumn('trace_logs', 'req_id', 'TEXT');
   addColumn('trace_logs', 'source', `TEXT DEFAULT 'wx'`);
   addColumn('trace_logs', 'risk_flag', 'INTEGER DEFAULT 0');
@@ -154,7 +155,7 @@ function seedSkills(): void {
     ['tmt_recall', 'mcp_mnemosyne', 0, '固化树回忆'],
     ['request_high_risk_exec', 'mcp_gateway_ctl', 2, '高危命令Y/N审批'],
     ['get_task_context', 'mcp_gateway_ctl', 0, '读取当前任务上下文'],
-    ['bash', 'pi_native', 2, 'Pi原生Shell'],
+    ['bash', 'dsh_native', 2, 'DSH原生Shell'],
   ];
   const stmt = db.prepare('INSERT INTO skills(name,runner,risk_level,enabled,description) VALUES(?,?,?,1,?) ON CONFLICT(name) DO NOTHING');
   for (const r of rows) stmt.run(...r);

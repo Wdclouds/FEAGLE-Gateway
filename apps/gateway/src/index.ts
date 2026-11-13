@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { config } from './config.js';
 import { trace, stats } from './db.js';
-import { piManager } from './pi-manager.js';
+import { dshManager } from './dsh-manager.js';
 import { receiveInbound, sendToBridge, gatewayStatus, wireCronToPipeline } from './pipeline.js';
 import { quickBatch } from './sanitizer.js';
 import {
@@ -38,7 +38,7 @@ const server = createServer((req, res) => {
   if (req.method === 'GET' && (req.url === '/health' || req.url === '/status')) {
     return json(200, {
       ok: true,
-      service: 'pi-wx-gateway',
+      service: 'feagle-wx-gateway',
       ...gatewayStatus(),
       db: stats(),
       uptime_s: Math.round(process.uptime()),
@@ -323,19 +323,21 @@ wireCronToPipeline();
 startScheduler();
 
 server.listen(config.gatewayPort, '127.0.0.1', () => {
-  console.log(`[pi-wx-gateway] listening on 127.0.0.1:${config.gatewayPort}`);
-  console.log(`[pi-wx-gateway] bridge -> ${config.bridgeOutUrl}`);
-  console.log(`[pi-wx-gateway] personas: ${listPersonas().map((p) => p.id).join(',')} | jobs: ${listJobs().length}`);
+  console.log(`[feagle-wx-gateway] listening on 127.0.0.1:${config.gatewayPort}`);
+  console.log(`[feagle-wx-gateway] bridge -> ${config.bridgeOutUrl}`);
+  console.log(`[feagle-wx-gateway] engine -> dsh (${config.dsh.provider}/${config.dsh.model}, fallback=${config.dsh.fallbackProvider}/${config.dsh.fallbackModel})`);
+  console.log(`[feagle-wx-gateway] personas: ${listPersonas().map((p) => p.id).join(',')} | jobs: ${listJobs().length}`);
   if (!config.adminWxids.length) {
-    console.warn('[pi-wx-gateway] ⚠️ ADMIN_WXIDS 未配置：私聊鉴权关闭（所有人可用）');
+    console.warn('[feagle-wx-gateway] ⚠️ ADMIN_WXIDS 未配置：私聊鉴权关闭（所有人可用）');
   }
 });
 
-piManager.on('recycled', () => console.log('[pi] 闲置回收完成'));
-piManager.on('log', (s: string) => console.log(`[pi:stderr] ${s}`));
+dshManager.on('recycled', () => console.log('[dsh] 闲置回收完成'));
+dshManager.on('log', (s: string) => console.log(`[dsh:stderr] ${s}`));
 
-const shutdown = () => {
+const shutdown = async () => {
   console.log('[gateway] shutting down...');
+  await dshManager.shutdown();
   server.close();
   process.exit(0);
 };
