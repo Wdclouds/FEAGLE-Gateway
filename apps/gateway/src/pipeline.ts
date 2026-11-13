@@ -1,175 +1,33 @@
 import { config, isGroup } from './config.js';
 import { getLease, setLease, trace, touchSession } from './db.js';
-import { routeMessage, distillMemories, directChat, analyzeSentryTranscript } from './llm.js';
-import { summon, semanticSearch, remember, saveCheckpoint, loadCheckpoint } from './mnemosyne.js';
+import { routeMessage, directChat } from './llm.js';
+import { semanticSearch } from './mnemosyne.js';
 import { dshManager } from './dsh-manager.js';
 import { buildOutboundBatch, quickBatch, isPromptInjectionOrToxic } from './sanitizer.js';
 import { toCompactLines, getSessionKey } from './protocol.js';
-import type { WxInboundPkt, WxOutboundBatch, MemoryHit } from './protocol.js';
+import type { WxInboundPkt, MemoryHit } from './protocol.js';
 import { dialogManager, formatQuoteReply } from './dialog.js';
-import { execSync } from 'node:child_process';
-import { statSync } from 'node:fs';
-import { db } from './db.js';
 import {
-  auditFull, getSession, setPersona, setWorkspace, getPersona, listPersonas, hasPendingConfirm, resolveApproval,
-  recordHazard, consumeHazard, taskStart, taskEnd, getTaskCtx,
-  listJobs, addJob, deleteJob, nextRun, setJobHandler,
-  isBlocked, touchMemberProfile, formatMemberProfileContext
+  auditFull, getSession, getPersona, listPersonas, hasPendingConfirm, resolveApproval,
+  recordHazard, taskStart, taskEnd, getTaskCtx,
+  listJobs, setJobHandler, isBlocked, touchMemberProfile, formatMemberProfileContext
 } from './control.js';
-import { matchHardCommand, HARD_COMMANDS, isLlmEnabled } from './commands.js';
+import { matchHardCommand, HARD_COMMANDS } from './commands.js';
+import { sendToBridge, notifyOp } from './pipeline/bridge-io.js';
+import { pushToSentry } from './pipeline/sentry.js';
+import { pushToWindow, extendWindow, getWindowPackets, listBufferKeys } from './pipeline/window.js';
+import { buildTaskPrompt, prefetchMemories, historian, isTestOrSystemChat } from './pipeline/prompt-builder.js';
 
-// ---------- 出站：把批次推给 wxbridge ----------
-export async function sendToBridge(batch: WxOutboundBatch): Promise<boolean> {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 10000);
-  try {
-    const res = await fetch(config.bridgeOutUrl, {
-      method: 'POST',
-      signal: ctl.signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batch),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+export { sendToBridge, notifyOp };
 
-/** 紧急专线：向所有 OP 管理员私信报警 */
-export async function notifyOp(text: string): Promise<void> {
-  for (const adminWxid of config.adminWxids) {
-    await sendToBridge(quickBatch(adminWxid, text));
-  }
-}
-
-// ---------- 哨兵观测模式 (Sentry Mode) 缓冲队列与人际图谱分析 ----------
-interface SentryBuf {
-  pkts: WxInboundPkt[];
-  timer: NodeJS.Timeout;
-}
-const sentryBuffers = new Map<string, SentryBuf>();
-const SENTRY_FLUSH_INTERVAL_MS = 60_000; // 60秒无新消息或满 8 条即触发批分析
-
-function pushToSentry(pkt: WxInboundPkt): void {
-  let buf = sentryBuffers.get(pkt.c);
-  if (!buf) {
-    buf = { pkts: [], timer: null as unknown as NodeJS.Timeout };
-    sentryBuffers.set(pkt.c, buf);
-  }
-  buf.pkts.push(pkt);
-
-  if (buf.pkts.length >= 8) {
-    flushSentry(pkt.c);
-    return;
-  }
-  if (buf.timer) clearTimeout(buf.timer);
-  buf.timer = setTimeout(() => flushSentry(pkt.c), SENTRY_FLUSH_INTERVAL_MS);
-  buf.timer.unref?.();
-}
-
-async function flushSentry(chatId: string): Promise<void> {
-  const buf = sentryBuffers.get(chatId);
-  if (!buf || buf.pkts.length === 0) {
-    sentryBuffers.delete(chatId);
-    return;
-  }
-  if (buf.timer) clearTimeout(buf.timer);
-  const pkts = buf.pkts;
-  sentryBuffers.delete(chatId);
-
-  const transcript = toCompactLines(pkts);
-  trace(chatId, 'L0', 'sentry_batch_flush', { count: pkts.length });
-
-  try {
-    const res = await analyzeSentryTranscript(transcript, chatId);
-
-    // 1. 若检测到紧急情况，直接穿透私聊 OP 管理员
-    if (res.urgent) {
-      trace(chatId, 'L0', 'sentry_urgent_alert', { reason: res.urgentReason }, undefined, { risk_flag: 2 });
-      const alertMsg =
-        `🚨 【哨兵紧急警报 · 群聊预警】\n` +
-        `• 来源群聊: ${chatId}\n` +
-        `• 紧急事由: ${res.urgentReason || '群内出现需管理员介入的紧急求助或突发事件'}\n` +
-        `• 关键发言: ${res.urgentSnippet ? `"${res.urgentSnippet}"` : '（见群消息）'}\n\n` +
-        `💡 提示：该群当前处于 sentry 哨兵模式，机器人已保持静默，请管理员及时处理。`;
-      await notifyOp(alertMsg);
-    }
-
-    // 2. 沉淀人际社交关系与知识图谱入 Mnemosyne 记忆宫殿
-    if (res.relations && res.relations.length > 0) {
-      for (const rel of res.relations) {
-        const memoryContent = `[CURRENT][RELATION][${chatId}] ${rel.subject} -> ${rel.relation} -> ${rel.object} (背景: ${rel.context})`;
-        await remember(memoryContent, 'knowledge', {
-          source: 'sentry_graph',
-          chat_id: chatId,
-          subject: rel.subject,
-          relation: rel.relation,
-          object: rel.object,
-          scope: 'group',
-          visibility: 'private_op',
-          is_test: false,
-          ts: Date.now(),
-        });
-      }
-      trace(chatId, 'L3', 'sentry_graph_stored', { count: res.relations.length });
-    }
-  } catch (err: any) {
-    trace(chatId, 'SYS', 'sentry_analyze_error', { err: String(err) });
-  }
-}
-
-// ---------- 滑动窗口防抖缓冲（方案 C：以 getSessionKey 区分群内用户与私聊） ----------
-interface WindowBuf {
-  pkts: WxInboundPkt[];
-  timer: NodeJS.Timeout;
-  firstAt: number;
-}
-const buffers = new Map<string, WindowBuf>();
-const MAX_WINDOW_MS = 30_000; // W 判定下的最长等待
-
-function pushToWindow(pkt: WxInboundPkt, onFlush: (pkts: WxInboundPkt[]) => void): void {
-  const sk = getSessionKey(pkt);
-  let buf = buffers.get(sk);
-  if (!buf) {
-    buf = { pkts: [], timer: null as unknown as NodeJS.Timeout, firstAt: Date.now() };
-    buffers.set(sk, buf);
-  }
-  buf.pkts.push(pkt);
-  if (buf.pkts.length >= 10) { flushWindow(sk, onFlush); return; } // 防爆缓冲
-  if (buf.timer) clearTimeout(buf.timer);
-  buf.timer = setTimeout(() => flushWindow(sk, onFlush), config.debounceMs);
-  buf.timer.unref?.();
-}
-
-function extendWindow(sessionKey: string, onFlush: (pkts: WxInboundPkt[]) => void): void {
-  const buf = buffers.get(sessionKey);
-  if (!buf) return;
-  if (Date.now() - buf.firstAt >= MAX_WINDOW_MS) { flushWindow(sessionKey, onFlush); return; }
-  if (buf.timer) clearTimeout(buf.timer);
-  buf.timer = setTimeout(() => flushWindow(sessionKey, onFlush), config.debounceMs);
-  buf.timer.unref?.();
-}
-
-function flushWindow(sessionKey: string, onFlush: (pkts: WxInboundPkt[]) => void): void {
-  const buf = buffers.get(sessionKey);
-  if (!buf || buf.pkts.length === 0) { buffers.delete(sessionKey); return; }
-  if (buf.timer) clearTimeout(buf.timer);
-  buffers.delete(sessionKey);
-  onFlush(buf.pkts);
-}
-
-// ---------- 高危告警路由（通道 B：熔断存档 + /approve 金牌重放） ----------
 dshManager.on('hazard', (h: { label: string; cmd: string }) => {
   trace(getTaskCtx()?.chat ?? '-', 'L2', 'hazard_blocked', h, undefined, { risk_flag: 1 });
-  recordHazard(h.label, h.cmd); // 存档 (chat + 原始 prompt + cmd)，微信提示 /approve
+  recordHazard(h.label, h.cmd);
 });
 dshManager.on('granted', (g: { cmd: string }) => {
   trace(getTaskCtx()?.chat ?? '-', 'L2', 'grant_used', g, undefined, { risk_flag: 2 });
 });
 
-// ---------- ACP 忙时补充指令队列（替代运行中 steer） ----------
 interface QueuedFollowup {
   chat: string;
   promptText: string;
@@ -180,47 +38,6 @@ interface QueuedFollowup {
 }
 const queuedFollowups = new Map<string, QueuedFollowup>();
 
-// ---------- 第 2 层：记忆预热 + DSH 执行 ----------
-function buildTaskPrompt(pkts: WxInboundPkt[], memories: MemoryHit[], personaPrompt: string, imgDesc?: string | null): string {
-  const last = pkts[pkts.length - 1];
-  const history = toCompactLines(pkts.slice(0, -1));
-  const turns = dialogManager.getTurns(last.c);
-  const turnsText = turns.length > 0
-    ? turns.map((t) => `${t.role === 'user' ? (t.sender || '用户') : '助手'}: ${t.content}`).join('\n')
-    : '';
-  const isGrp = isGroup(last.c);
-  const groupBg = isGrp ? dialogManager.getGroupBackground(last.c) : '';
-  const memberTag = isGrp ? formatMemberProfileContext(last.c, last.u, last.n) : '';
-  const memBlock = memories.length
-    ? memories.map((m, i) => `${i + 1}. [${m.created_at ? m.created_at.slice(0, 10) : '近期'}] ${m.content.slice(0, 300)}`).join('\n')
-    : '（无命中）';
-  return [
-    '[人设指令]',
-    personaPrompt,
-    '',
-    memberTag ? `[提问者成员画像]\n${memberTag}\n` : '',
-    turnsText ? `[近期多轮问答上下文]\n${turnsText.slice(-1500)}\n` : '',
-    groupBg ? `[群聊环境背景流水]\n${groupBg.slice(-800)}\n` : '',
-    '[微信任务上下文]',
-    history ? `近期窗口消息：\n${history.slice(-1000)}` : '',
-    `[历史记忆参考（按时效加权排序）]\n${memBlock}`,
-    '【记忆时效与时序仲裁约束】：',
-    '1. 记忆内容按时间倒序及半衰期有效度排列；',
-    '2. 新决策自动覆盖旧决策：当记忆中针对同一项目架构、配置或决策存在冲突时，必须严格以最新时间（或带有 [CURRENT] 标签）的记忆为准；',
-    '3. 宁缺毋滥：若记忆内容依赖已下线或已废弃的旧方案，严禁生搬硬套，以当前对话与实际代码现状为准。',
-    last.img
-      ? `[用户发图] 图片内容转述：${imgDesc || '（视觉模型未能读取，可自行 cat 该文件查看）'}\n图片本地路径：${last.img}`
-      : '',
-    '',
-    '[当前任务]',
-    last.t,
-    '',
-    '要求：直接执行任务（可读写工作区文件、跑 shell、按需调用 mcp__mnemosyne__* 记忆工具），完成后输出简洁中文总结；代码与报错保持原样输出，不要改写。',
-    '高危操作铁律：凡涉及删除数据/修改系统配置/重启服务/大范围文件变动的命令，执行前必须先调用 mcp__gateway-ctl__request_high_risk_exec 工具或等待权限审批获得用户批准，禁止直接执行。',
-  ].filter(Boolean).join('\n');
-}
-
-/** 通道 B 金牌重放：带原始 Prompt 重新触发 Pi */
 async function runReplay(chat: string, prompt: string, rid?: string): Promise<void> {
   const persona = getPersona(getSession(chat).persona_id, true, chat);
   const mems: MemoryHit[] = [];
@@ -236,7 +53,7 @@ async function runTask(pkts: WxInboundPkt[], origin: WxInboundPkt, imgDesc?: str
   const promptText = buildTaskPrompt(pkts, memories, persona.sys_prompt, imgDesc);
   await runTaskCore(chat, promptText, memories, persona, rid, origin);
 }
-/** 任务核心执行（runTask / runReplay / cron 殊途同归） */
+
 async function runTaskCore(
   chat: string,
   promptText: string,
@@ -275,7 +92,6 @@ async function runTaskCore(
       ? result.text || '（任务完成，无文本输出）'
       : `任务失败：${result.error || '未知错误'}`;
 
-    // 写入活跃会话轮次（支持 15 分钟自然衰减）
     if (origin) {
       dialogManager.appendTurn(chat, {
         role: 'user',
@@ -322,73 +138,6 @@ async function runTaskCore(
   }
 }
 
-/** 记忆预取（任务前置，带空间隔离与防串台过滤） */
-async function prefetchMemories(pkts: WxInboundPkt[], _persona: ReturnType<typeof getPersona>): Promise<MemoryHit[]> {
-  const chat = pkts[0]?.c ?? '-';
-  const query = toCompactLines(pkts).slice(-400);
-  let memories: MemoryHit[] = [];
-  try {
-    memories = await summon(query);
-    if (memories.length === 0) {
-      memories = await semanticSearch(query, {
-        topK: 5,
-        chatId: chat !== '-' ? chat : undefined,
-        includeTest: false,
-      });
-    }
-  } catch { /* 记忆库故障不阻塞任务 */ }
-  trace(chat, 'L2', 'memory_prewarm', { hits: memories.length, chat });
-  return memories;
-}
-
-/** 异步史官：过滤水群，提炼决策/踩坑/偏好，按翼区写入；群聊非管理员禁写个人翼区 */
-async function historian(chat: string, origin: WxInboundPkt, userTranscript: string, aiResult: string): Promise<void> {
-  const t0 = Date.now();
-  const transcript = `用户侧：\n${userTranscript}\n\nAI侧结果：\n${aiResult.slice(0, 3000)}`;
-  const distilled = await distillMemories(transcript);
-  if (!distilled.length) return;
-
-  const isAdmin = config.adminWxids.includes(origin.u);
-  const allowed = isAdmin
-    ? distilled
-    : distilled.filter((m) => ['project', 'knowledge', 'worklog', 'pitfall'].includes(m.category)); // 群聊防串台：非管理员禁写 preference
-
-  let written = 0;
-  for (const m of allowed) {
-    const isGrp = isGroup(chat);
-    // 写入时加注规范状态前缀与来源标签（源头防腐）
-    const taggedContent = `[CURRENT][${m.category.toUpperCase()}] ${m.content}`;
-    const ok = await remember(taggedContent, m.category, {
-      source: 'historian',
-      chat_id: chat,
-      sender: origin.u,
-      scope: isGrp ? 'group' : 'private',
-      visibility: isGrp ? 'group' : 'private',
-      is_test: false,
-      ts: Date.now(),
-    });
-    if (ok) written++;
-  }
-  trace(chat, 'L3', 'historian', { distilled: distilled.length, written, admin: isAdmin }, Date.now() - t0);
-}
-
-function isTestOrSystemChat(chatId: string): boolean {
-  if (!chatId) return false;
-  const lower = chatId.toLowerCase();
-  return (
-    lower.startsWith('test_') ||
-    lower.startsWith('e2e_') ||
-    lower.startsWith('qc_') ||
-    lower.startsWith('notify:') ||
-    lower.startsWith('gh_') ||
-    lower === 'filehelper' ||
-    lower === 'fmessage' ||
-    lower === 'newsapp' ||
-    lower === 'weixin'
-  );
-}
-
-// ---------- 漏斗主入口 ----------
 export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
   const t0 = Date.now();
   pkt.rid = pkt.rid ?? `${pkt.u === 'system_cron' ? 'cron' : 'wx'}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -396,19 +145,16 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
   trace(pkt.c, 'L0', 'inbound', { u: pkt.u, at: pkt.at, t: pkt.t.slice(0, 80), img: !!pkt.img }, Date.now() - t0, { req_id: pkt.rid, source: pkt.u === 'system_cron' ? 'cron' : 'wx' });
   auditFull({ type: 'inbound', req_id: pkt.rid, chat: pkt.c, from: pkt.u, text: pkt.t, img: pkt.img, at: pkt.at, ts: Date.now() });
 
-  // cron 系统投递：跳过鉴权与 @ 校验（构造即受信）
   const systemCron = pkt.u === 'system_cron';
   const isOp = config.adminWxids.includes(pkt.u);
   const group = isGroup(pkt.c);
   const sess = getSession(pkt.c);
 
-  // 🚫 内部测试与微信系统服务号硬过滤：防止测试噪声进入主调度流
   if (!systemCron && isTestOrSystemChat(pkt.c)) {
     trace(pkt.c, 'L0', 'test_system_chat_dropped', { c: pkt.c, u: pkt.u });
     return;
   }
 
-  // 🚫 黑名单硬拦截：被屏蔽的用户 (wxid) 或群聊直接物理丢弃，绝不响应、不进日志
   if (!systemCron && !isOp) {
     if (isBlocked(pkt.u) || isBlocked(pkt.c)) {
       trace(pkt.c, 'L0', 'blocked_target_dropped', { u: pkt.u, c: pkt.c });
@@ -416,13 +162,10 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
     }
   }
 
-  // 记录并更新群成员活跃度与基础画像
   if (!systemCron && group) {
     touchMemberProfile(pkt.c, pkt.u, pkt.n);
   }
 
-  // ⚡ L0 硬指令集中调度执行（0 延迟、0 成本、100% 纯 TS 原生执行，绝不走 LLM）
-  // 无论当前处于什么模式，硬指令始终享有最高执行优先权！
   const hardMatch = matchHardCommand(pkt.t);
   if (hardMatch) {
     const cmdDef = HARD_COMMANDS[hardMatch.cmdName];
@@ -454,12 +197,11 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
         return sendToBridge(quickBatch(pkt.c, quoted, group && pkt.at ? pkt.u : undefined));
       },
       runTaskReplay: (chat, prompt, rid) => runReplay(chat, prompt, rid),
-      getWindowHistory: (sk) => buffers.get(sk)?.pkts || [],
+      getWindowHistory: (sk) => getWindowPackets(sk),
     });
     return;
   }
 
-  // ⚡ 屏蔽机制：防止提示词投毒 / 越狱攻击注入拦截 (硬规则，0 成本)
   if (!systemCron) {
     const toxicCheck = isPromptInjectionOrToxic(pkt.t);
     if (toxicCheck.blocked) {
@@ -475,7 +217,6 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
     }
   }
 
-  // ⚡ 审批优先拦截：本会话有挂起审批时，Y/N 直接进裁决器（蓝图通道 A）
   const pendingNo = hasPendingConfirm(pkt.c);
   if (pendingNo && !systemCron) {
     const text = pkt.t.trim().toUpperCase();
@@ -490,39 +231,30 @@ export async function receiveInbound(pkt: WxInboundPkt): Promise<void> {
         return;
       }
     }
-    // /approve /deny 放行到 L0 指令层处理（与通道 B 语义统一）
   }
 
-  // 🕹️ 三大模式行为路由：
-  // 模式 1: mute (彻底静音)
   if (sess.mode === 'mute') {
     trace(pkt.c, 'L0', 'mode_mute_skip', { u: pkt.u });
     return;
   }
 
-  // 模式 2: sentry (哨兵观测模式)
   if (sess.mode === 'sentry') {
-    // 哨兵模式下：收集所有消息进行离线分析与社交图谱沉淀，但在群内绝不主动回复发信
     pushToSentry(pkt);
     trace(pkt.c, 'L0', 'mode_sentry_ingest', { u: pkt.u });
     return;
   }
 
-  // 模式 3: chat (正常交互模式)
-  // 鉴权：私聊白名单 / 群聊 @ 校验
   if (!systemCron) {
     if (!group && config.adminWxids.length && !isOp) {
       trace(pkt.c, 'L0', 'auth_rejected', { u: pkt.u }, undefined, { req_id: pkt.rid });
-      return; // 非管理员私聊：静默丢弃
+      return;
     }
     if (group && !pkt.at) {
-      // 群聊普通发言流水（未 @ 机器人）：记录到群背景感知环，为后续 @Nox 互动提供上下文话题环境
       dialogManager.recordGroupBackground(pkt.c, pkt.n || pkt.u, pkt.t);
       return;
     }
   }
 
-  // 进入滑动窗口防抖
   pushToWindow(pkt, (pkts) => void onWindowFlush(pkts));
 }
 
@@ -537,18 +269,12 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
   const isOp = config.adminWxids.includes(last.u);
   const currentImg = pkts.slice().reverse().find((p) => p.img)?.img;
 
-  // 人设解析：优先从群独立沙箱加载人设、群规与工具配置
   const persona = getPersona(last.persona_id || getSession(chat).persona_id, isOp, chat);
   const memories = await prefetchMemories(pkts, persona);
-
-  // 获取发言成员画像与标签
   const memberTag = isGrp ? formatMemberProfileContext(chat, last.u, last.n) : '';
-
-  // 获取 15 分钟内的多轮对话上下文与群聊背景感知环
   const historyTurns = dialogManager.getTurns(chat);
   const groupBg = isGrp ? dialogManager.getGroupBackground(chat) : '';
 
-  // 人设 l1_only：强制不唤醒 DSH，Gemini 3.8 Flash 带人设直答（支持图片直传原生视觉与多轮历史）
   if (persona.engine_mode === 'l1_only') {
     const t = Date.now();
     const memBlock = memories.length
@@ -603,17 +329,16 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
     return;
   }
 
-  // 第 1 层：入口状态与意图路由（图片先经视觉转述）
   const t1 = Date.now();
   const { decision, provider, imgDesc } = await routeMessage(compactHistory, busy, currentImg);
   trace(chat, 'L1', 'route', { decision, provider, imgDesc: imgDesc || undefined, sessionKey }, Date.now() - t1, { req_id: rid });
 
   switch (decision.s) {
-    case 'W': // 话没说完：延长窗口继续等
+    case 'W':
       extendWindow(sessionKey, (p) => void onWindowFlush(p));
       trace(chat, 'L1', 'wait_more', { sessionKey });
       return;
-    case 'X': { // 打断
+    case 'X': {
       await dshManager.cancel();
       queuedFollowups.delete(chat);
       setLease(chat, false);
@@ -626,7 +351,7 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
       await sendToBridge(quickBatch(chat, xReply, isGrp ? last.u : undefined));
       return;
     }
-    case 'T': { // 闲聊秒回（不唤醒 Pi）
+    case 'T': {
       const reply = decision.r || '在的，请讲。';
       dialogManager.appendTurn(chat, {
         role: 'user',
@@ -649,7 +374,7 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
       trace(chat, 'L1', 'chitchat_direct', { provider });
       return;
     }
-    case 'R': { // 额度保护拒单（不唤醒 Pi，礼貌拒绝+建议拆解）
+    case 'R': {
       const reply =
         decision.r ||
         '这个任务规模有点大，一口气跑完会烧掉不少额度。建议拆成小步骤分批发给我，每批一个明确的小任务，我逐个搞定。';
@@ -662,26 +387,23 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
       await sendToBridge(quickBatch(chat, formattedReply, isGrp ? last.u : undefined));
       trace(chat, 'L1', 'refuse_quota_guard', { provider, c: decision.c }, undefined, {
         req_id: rid,
-        risk_flag: 1, // 额度保护拦截（非高危，仅标记）
+        risk_flag: 1,
       });
       return;
     }
-    case 'S': // 追加引导
+    case 'S':
       if (dshManager.busy()) {
         await runTask(pkts, last, imgDesc);
         return;
       }
-      // 不忙时的 S 按 C 处理
       break;
-    case 'C': // 工程任务 → 第 2 层
+    case 'C':
       break;
   }
 
-  // 置信度 < 0.75：扩大记忆检索范围（防失忆）——在 runTask 前预取宽口径记忆
   await runTask(pkts, last, imgDesc);
 }
 
-// ---------- Cron 事件化（蓝图破局三：定时任务构造标准入站包进主管线） ----------
 let cronWired = false;
 export function wireCronToPipeline(): void {
   if (cronWired) return;
@@ -696,16 +418,15 @@ export function wireCronToPipeline(): void {
       t: job.prompt_payload,
       ts: Date.now(),
       rid: `cron_${job.id}_${Date.now()}`,
-      persona_id: job.persona_id, // 任务自带人设，优先于会话当前人设
+      persona_id: job.persona_id,
     };
-    // 直接进主管线：享受 Turn Lease / 人设 / 审计 / 微批次出站全套
     await receiveInbound(pkt);
   });
 }
 
 export function gatewayStatus() {
   return {
-    buffers: Array.from(buffers.keys()),
+    buffers: listBufferKeys(),
     dsh: dshManager.procInfo(),
     busy: dshManager.busy(),
     admin: config.adminWxids,

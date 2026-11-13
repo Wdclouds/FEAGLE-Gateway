@@ -1,0 +1,18 @@
+[Unit]
+Description=FEAGLE-WeChat-Gateway (4-layer funnel gateway with DSH ACP)
+After=network.target mnemosyne.service antigravity-tools.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/FEAGLEwxbot/apps/gateway
+ExecStart=/usr/bin/node --max-old-space-size=192 dist/index.js
+Restart=on-failure
+RestartSec=5
+Environment=PATH=/opt/node24/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/root
+Environment=NODE_ENV=production
+MemoryHigh=450M
+MemoryMax=640M
+
+[Install]
+WantedBy=multi-user.target

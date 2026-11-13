@@ -1,0 +1,14 @@
+[Unit]
+Description=Mnemosyne OS Memory Service (:18010)
+After=network.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/mnemosyne-experiment/repo
+ExecStart=/root/.hermes/mnemosyne/run.sh
+Restart=on-failure
+RestartSec=5
+MemoryMax=220M
+
+[Install]
+WantedBy=multi-user.target
