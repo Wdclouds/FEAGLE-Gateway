@@ -1,0 +1,28 @@
+{
+  "name": "feagle-gateway-monorepo",
+  "version": "0.8.4",
+  "private": true,
+  "description": "FEAGLE WxBot: 微信 8.0.79/8.0.78 物理真机驱动与全栈智能体网关系统",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "workspaces": [
+    "apps/bridge",
+    "apps/gateway",
+    "apps/web",
+    "packages/protocol"
+  ],
+  "scripts": {
+    "build": "npm run build -w apps/gateway && npm run build -w apps/web",
+    "build:gateway": "npm run build -w apps/gateway",
+    "build:web": "npm run build -w apps/web",
+    "check:protocol": "npm run check -w packages/protocol",
+    "check:secrets": "bash ./scripts/check-secrets.sh",
+    "test": "npm run check:protocol && npm run test -w apps/bridge && npm run test -w apps/gateway",
+    "test:bridge": "npm run test -w apps/bridge",
+    "test:gateway": "npm run test -w apps/gateway",
+    "start:bridge": "npm run start -w apps/bridge",
+    "start:gateway": "npm run start -w apps/gateway"
+  }
+}

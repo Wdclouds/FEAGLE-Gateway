@@ -12,10 +12,12 @@
   "scripts": {
     "start": "node src/index.js",
     "pair-android": "node src/android-pairing-cli.js create",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "pretest": "node -e \"import { existsSync } from 'node:fs'; import { execSync } from 'node:child_process'; if (!existsSync('src/public/index.html')) execSync('npm --prefix ../web run build', { stdio: 'inherit' });\""
   },
   "dependencies": {
     "qrcode": "1.5.4",
-    "ws": "^8.21.1"
+    "ws": "^8.21.1",
+    "@feagle/protocol": "0.8.0"
   }
 }

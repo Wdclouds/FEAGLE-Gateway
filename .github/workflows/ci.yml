@@ -11,66 +11,56 @@ jobs:
   bridge:
     name: Bridge and deployment guards
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/bridge
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/bridge/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Check repository for secrets and runtime data
-        working-directory: .
         run: ./scripts/check-secrets.sh
       - name: Test shell setup and safety guards
-        working-directory: .
         run: bash ./scripts/test-shell.sh
       - name: Validate Docker Compose manifest
-        working-directory: .
         run: |
           cp .env.example .env
           trap 'rm -f .env' EXIT
           docker compose config --quiet
       - run: npm ci
-      - run: npm test
+      - name: Build Web Console assets for Bridge SPA tests
+        run: npm run build:web
+      - run: npm run test:bridge
 
   gateway:
     name: Gateway and DSH ACP guards
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/gateway
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/gateway/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - name: Check MCP bridge syntax
         run: |
-          node --check mcp/mnemosyne-mcp.mjs
-          node --check mcp/gateway-ctl-mcp.mjs
-      - run: npm test
+          node --check apps/gateway/mcp/mnemosyne-mcp.mjs
+          node --check apps/gateway/mcp/gateway-ctl-mcp.mjs
+      - run: npm run test:gateway
 
   web:
     name: Web Console build & typecheck
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npm run build
+      - run: npm run build:web
 
   protocol:
     name: Shared protocol contract

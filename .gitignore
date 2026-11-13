@@ -57,3 +57,7 @@ backups/
 *.zip
 *.tar
 *.tar.gz
+
+# Frontend compiled artifacts (built from apps/web)
+apps/bridge/src/public/index.html
+apps/bridge/src/public/assets/

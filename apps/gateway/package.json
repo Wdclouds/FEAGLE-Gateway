@@ -10,9 +10,12 @@
     "start": "node --max-old-space-size=192 dist/index.js",
     "dev": "tsc -w"
   },
-  "engines": { "node": ">=22.5.0" },
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "dependencies": {
-    "undici": "^7.0.0"
+    "undici": "^7.0.0",
+    "@feagle/protocol": "0.8.0"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
