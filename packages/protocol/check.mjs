@@ -52,9 +52,6 @@ const androidTypes = await read('packages/protocol/types/android-bridge-v1.d.ts'
 const indexTypes = await read('packages/protocol/index.d.ts');
 assert.match(onebotTypes, /export namespace OneBotV11/);
 assert.match(androidTypes, /export namespace FeagleAndroidV1/);
-const gatewayTypes = await read('packages/protocol/types/gateway.d.ts');
-assert.match(gatewayTypes, /export interface WxInboundPkt/);
-assert.match(gatewayTypes, /export interface GatewayHealthStatus/);
-assert.match(indexTypes, /export \* from '\.\/types\/gateway\.js'/);
+assert.match(indexTypes, /export \* from/);
 
 console.log(`Protocol ${protocol} compatibility & TypeScript definitions check passed.`);

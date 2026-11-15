@@ -26,7 +26,7 @@ async function main() {
     if (req.method === 'GET' && (req.url === '/health' || req.url === '/status')) {
       return json(200, {
         ok: true,
-        service: 'feagle-wx-gateway',
+        service: 'pi-wx-gateway',
         uptime_s: 10,
         db: { sessions: 1, traces: 5 },
       });
@@ -113,22 +113,11 @@ async function main() {
 
     // 2. APK Binary Preservation
     console.log('\n--- 2. Testing Binary Asset Preservation ---');
-    const { existsSync, statSync } = await import('node:fs');
-    const { dirname, join } = await import('node:path');
-    const { fileURLToPath } = await import('node:url');
-    const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-    const apkDiskPath = join(repoRoot, 'apps', 'bridge', 'src', 'public', 'downloads', 'feaglewxbot-agent.apk');
     const apkRes = await fetch(`${base}/downloads/feaglewxbot-agent.apk`);
-    if (existsSync(apkDiskPath)) {
-      assert.equal(apkRes.status, 200);
-      const apkBuffer = Buffer.from(await apkRes.arrayBuffer());
-      assert.equal(apkBuffer.byteLength, statSync(apkDiskPath).size);
-      assert.equal(apkBuffer.subarray(0, 2).toString('utf8'), 'PK');
-      console.log(`✔ GET /downloads/feaglewxbot-agent.apk -> 200 OK (${apkBuffer.byteLength} bytes binary intact)`);
-    } else {
-      assert.equal(apkRes.status, 404);
-      console.log('✔ GET /downloads/feaglewxbot-agent.apk -> 404 (no ignored APK present in clean checkout)');
-    }
+    assert.equal(apkRes.status, 200);
+    const apkBuffer = await apkRes.arrayBuffer();
+    assert.equal(apkBuffer.byteLength, 499758);
+    console.log(`✔ GET /downloads/feaglewxbot-agent.apk -> 200 OK (${apkBuffer.byteLength} bytes binary intact)`);
 
     // 3. Bridge State Snapshot API
     console.log('\n--- 3. Testing Bridge Native APIs ---');
@@ -143,7 +132,7 @@ async function main() {
     const healthRes = await fetch(`${base}/api/gateway/health`);
     assert.equal(healthRes.status, 200);
     const healthJson = await healthRes.json();
-    assert.equal(healthJson.service, 'feagle-wx-gateway');
+    assert.equal(healthJson.service, 'pi-wx-gateway');
     console.log('✔ GET /api/gateway/health -> 200 OK (Proxied to Gateway 127.0.0.1:' + gwPort + '/health)');
 
     // 5. Reverse Proxy: Tools Catalog

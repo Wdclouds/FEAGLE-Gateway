@@ -36,13 +36,13 @@ export const config = {
   adminWxids: get('ADMIN_WXIDS', '').split(',').map((s) => s.trim()).filter(Boolean),
   groupChatEnabled: get('GROUP_CHAT_ENABLED', '1') === '1',
 
-  // 出海代理（DSH 进程可选代理）
+  // 出海代理（Pi 进程可选代理）
   proxyUrl: get('PROXY_URL', 'http://127.0.0.1:7890'),
 
   // 统一大模型后端：Antigravity 反代（Gemini 3.8 Flash，支持原生视觉、单轮与多轮智能）
   antigravity: {
     baseUrl: get('ANTIGRAVITY_BASE_URL', 'http://127.0.0.1:8045/v1'),
-    apiKey: get('ANTIGRAVITY_KEY', ''),
+    apiKey: get('ANTIGRAVITY_KEY', 'sk-853a7382bdef4d50acd0a01c62906b87'),
     model: get('ANTIGRAVITY_MODEL', 'gemini-3.8-flash'),
     timeoutMs: getNum('ANTIGRAVITY_TIMEOUT_MS', 15000),
   },
@@ -55,21 +55,13 @@ export const config = {
     topK: getNum('MNEMOSYNE_TOP_K', 5),
   },
 
-  // DeepSeek Harness (dsh --profile acp) 子进程（全局单例 + 闲置即焚）
-  dsh: {
-    nodeBin: get('DSH_NODE_BIN', '/opt/node24/bin/node'),
-    dshBin: get('DSH_BIN', '/opt/dsh/node_modules/.bin/dsh'),
-    profile: get('DSH_PROFILE', 'acp'),
-    dshHome: get('DSH_HOME', '/opt/dsh-home'),
-    provider: get('DSH_PROVIDER', 'antigravity'),
-    model: get('DSH_MODEL', 'gemini-3.8-flash'),
-    fallbackProvider: get('DSH_FALLBACK_PROVIDER', 'deepseek-official'),
-    fallbackModel: get('DSH_FALLBACK_MODEL', 'deepseek-flash'),
-    permissionMode: get('DSH_PERMISSION_MODE', 'workspace-write'),
-    idleTimeoutMs: getNum('DSH_IDLE_TIMEOUT_MS', 3 * 60 * 1000), // 3 分钟
-    defaultCwd: get('DSH_CWD', get('PI_CWD', '/opt/FEAGLEwxbot')),
-    maxOldSpace: getNum('DSH_MAX_OLD_SPACE', 256),               // V8 硬限 256MB
-    promptTimeoutMs: getNum('DSH_PROMPT_TIMEOUT_MS', 10 * 60 * 1000),
+  // Pi RPC 子进程（全局单例 + 闲置即焚）
+  pi: {
+    bin: get('PI_BIN', 'pi'),
+    idleTimeoutMs: getNum('PI_IDLE_TIMEOUT_MS', 3 * 60 * 1000), // 3 分钟
+    defaultCwd: get('PI_CWD', '/opt/FEAGLEwxbot'),
+    maxOldSpace: getNum('PI_MAX_OLD_SPACE', 256),               // V8 硬限 256MB
+    promptTimeoutMs: getNum('PI_PROMPT_TIMEOUT_MS', 10 * 60 * 1000),
   },
 
   // 滑动窗口防抖（同 chat_id 连发消息合并）

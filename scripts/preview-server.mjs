@@ -69,8 +69,8 @@ const gwServer = createServer((req, res) => {
   if (req.method === 'GET' && (req.url === '/health' || req.url === '/status')) {
     return json(200, {
       ok: true,
-      service: 'feagle-wx-gateway',
-      engine: 'DSH-ACP + Antigravity Dual Core',
+      service: 'pi-wx-gateway',
+      engine: 'Pi-Hermes Dual Core',
       uptime_s: Math.round(process.uptime()),
       db: { sessions: 12, traces: 148 },
     });

@@ -7,15 +7,13 @@ import type { TraceEntry } from './protocol.js';
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 export const db = new DatabaseSync(config.dbPath);
-db.exec('PRAGMA busy_timeout = 5000;');
-for (let attempt = 0; attempt < 5; attempt++) {
-  try {
-    db.exec(`
+db.exec(`
 PRAGMA journal_mode = WAL;
+PRAGMA busy_timeout = 5000;
 CREATE TABLE IF NOT EXISTS sessions (
   chat_id     TEXT PRIMARY KEY,
   turn_lease  INTEGER NOT NULL DEFAULT 0,   -- 0=空闲 1=占用（同一 chat 同时只有一个任务）
-  pi_session  TEXT,                          -- 历史兼容保留列
+  pi_session  TEXT,                          -- Pi session id（可选恢复）
   updated_at  INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS trace_logs (
@@ -29,12 +27,6 @@ CREATE TABLE IF NOT EXISTS trace_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_trace_chat ON trace_logs(chat_id, ts DESC);
 `);
-    break;
-  } catch (err: any) {
-    if (attempt === 4 || !String(err?.message || '').includes('locked')) throw err;
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50 * (attempt + 1));
-  }
-}
 
 const stmtSession = db.prepare(
   'INSERT INTO sessions(chat_id, updated_at) VALUES(?, ?) ON CONFLICT(chat_id) DO UPDATE SET updated_at = ?'
@@ -90,36 +82,4 @@ export function stats(): { sessions: number; traces: number } {
   const s = (db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n;
   const t = (db.prepare('SELECT COUNT(*) AS n FROM trace_logs').get() as { n: number }).n;
   return { sessions: s, traces: t };
-}
-
-
-// 确保 dsh_session 列存在（兼容已存在的 gateway.db）
-try {
-  const cols = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>;
-  if (!cols.some((c) => c.name === 'dsh_session')) {
-    db.exec('ALTER TABLE sessions ADD COLUMN dsh_session TEXT');
-  }
-} catch { /* ignore */ }
-
-export interface PersistedDshSession {
-  sessionId: string;
-  cwd: string;
-}
-
-export function getDshSession(chatId: string): PersistedDshSession | null {
-  try {
-    const row = db.prepare('SELECT dsh_session FROM sessions WHERE chat_id = ?').get(chatId) as { dsh_session?: string | null } | undefined;
-    if (!row?.dsh_session) return null;
-    const parsed = JSON.parse(row.dsh_session);
-    if (parsed && typeof parsed.sessionId === 'string' && typeof parsed.cwd === 'string') {
-      return { sessionId: parsed.sessionId, cwd: parsed.cwd };
-    }
-  } catch { /* ignore */ }
-  return null;
-}
-
-export function setDshSession(chatId: string, session: PersistedDshSession | null): void {
-  touchSession(chatId);
-  const val = session ? JSON.stringify(session) : null;
-  db.prepare('UPDATE sessions SET dsh_session = ?, updated_at = ? WHERE chat_id = ?').run(val, Date.now(), chatId);
 }
