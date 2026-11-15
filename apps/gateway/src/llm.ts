@@ -49,12 +49,12 @@ export interface ChatResponse {
 /** Antigravity 反代调用（Gemini 3.8 Flash，支持 OpenAI 标准 tools/tool_calls）。 */
 export async function antigravityChatResponse(
   messages: Array<any>,
-  opts: { maxTokens: number; temperature: number; timeoutMs?: number; tools?: any[] }
+  opts: { maxTokens: number; temperature: number; timeoutMs?: number; tools?: any[]; model?: string }
 ): Promise<ChatResponse | null> {
   if (!config.antigravity.apiKey) return null;
   const timeout = opts.timeoutMs ?? config.antigravity.timeoutMs;
   const payload: Record<string, any> = {
-    model: config.antigravity.model,
+    model: opts.model ?? config.antigravity.model,
     messages,
     temperature: opts.temperature,
     max_tokens: opts.maxTokens,
@@ -95,7 +95,7 @@ export async function antigravityChatResponse(
 /** Antigravity 反代单轮调用（Gemini 3.8 Flash）。失败返回 null，由调用方降级。 */
 async function antigravityChat(
   messages: Array<{ role: string; content: string | unknown[] }>,
-  opts: { maxTokens: number; temperature: number; timeoutMs?: number }
+  opts: { maxTokens: number; temperature: number; timeoutMs?: number; model?: string }
 ): Promise<string | null> {
   const resp = await antigravityChatResponse(messages, opts);
   return resp?.content ?? null;
@@ -184,6 +184,7 @@ export async function routeMessage(
     maxTokens: 250,
     temperature: 0.1,
     timeoutMs: Math.min(10000, config.antigravity.timeoutMs),
+    model: config.antigravity.routeModel,
   });
   if (gem) return { decision: parseDecision(gem, isBusy), provider: 'gemini', imgDesc };
   return { decision: fallbackDecision(isBusy), provider: 'fallback', imgDesc };

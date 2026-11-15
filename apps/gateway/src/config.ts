@@ -44,6 +44,8 @@ export const config = {
     baseUrl: get('ANTIGRAVITY_BASE_URL', 'http://127.0.0.1:8045/v1'),
     apiKey: get('ANTIGRAVITY_KEY', 'sk-853a7382bdef4d50acd0a01c62906b87'),
     model: get('ANTIGRAVITY_MODEL', 'gemini-3.8-flash'),
+    // 路由器跑在每条消息的关键路径上（llm.ts 里硬上限 10s），慢模型会让每条消息都白等到超时
+    routeModel: get('ANTIGRAVITY_ROUTE_MODEL', get('ANTIGRAVITY_MODEL', 'gemini-3.8-flash')),
     timeoutMs: getNum('ANTIGRAVITY_TIMEOUT_MS', 15000),
   },
 
