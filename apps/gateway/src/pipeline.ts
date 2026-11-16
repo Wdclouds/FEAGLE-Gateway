@@ -3,6 +3,7 @@ import { getLease, setLease, trace, touchSession } from './db.js';
 import { routeMessage, distillMemories, directChat, analyzeSentryTranscript } from './llm.js';
 import { summon, semanticSearch, remember, saveCheckpoint, loadCheckpoint } from './mnemosyne.js';
 import { piManager, grantOnce } from './pi-manager.js';
+import { promptWithEmptyRetry, agentReplyText } from './agent-reply.js';
 import { buildOutboundBatch, quickBatch, isPromptInjectionOrToxic } from './sanitizer.js';
 import { toCompactLines, getSessionKey } from './protocol.js';
 import type { WxInboundPkt, WxOutboundBatch, MemoryHit } from './protocol.js';
@@ -257,22 +258,14 @@ async function runTaskCore(
   try {
     const workspace = getSession(chat).workspace;
     const wsArg = workspace !== config.pi.defaultCwd ? workspace : undefined;
-    let result = await piManager.prompt(promptText, undefined, wsArg);
+    // 空响应（无文本且无工具调用）多半是模型只出了推理 token 就结束，重试一次再决定怎么回
+    const result = await promptWithEmptyRetry(
+      () => piManager.prompt(promptText, undefined, wsArg),
+      (first) => trace(chat, 'L2', 'empty_retry', { firstMs: first.durationMs }, undefined, { req_id: rid }),
+    );
     trace(chat, 'L2', 'pi_done', { ok: result.ok, tools: result.tools.length, ms: result.durationMs }, result.durationMs, { req_id: rid });
 
-    // 空响应（无文本且无工具调用）多半是模型只出了推理 token 就结束，重试一次再决定怎么回
-    if (result.ok && !result.text && result.tools.length === 0) {
-      trace(chat, 'L2', 'empty_retry', { firstMs: result.durationMs }, undefined, { req_id: rid });
-      result = await piManager.prompt(promptText, undefined, wsArg);
-      trace(chat, 'L2', 'pi_done', { ok: result.ok, tools: result.tools.length, ms: result.durationMs, retry: true }, result.durationMs, { req_id: rid });
-    }
-
-    const replyText = result.ok
-      ? result.text
-        || (result.tools.length > 0
-          ? '（任务执行完了，但模型没有给出文字总结）'
-          : '（模型这次没有返回内容，重试后仍是空的，请再发一次或说明得更具体些）')
-      : `任务失败：${result.error || '未知错误'}`;
+    const replyText = agentReplyText(result);
 
     // 写入活跃会话轮次（支持 15 分钟自然衰减）
     if (origin) {
