@@ -74,11 +74,11 @@ interactive_config() {
 
   echo ""
   echo -e "${BOLD}配置大语言模型 (LLM):${NC}"
-  read -rp "请输入模型 API Base [默认 https://api.feagle.top/v1]: " input_api_base
-  input_api_base="${input_api_base:-https://api.feagle.top/v1}"
+  read -rp "请输入模型 API Base [默认 https://code.mrday.one/v1]: " input_api_base
+  input_api_base="${input_api_base:-https://code.mrday.one/v1}"
 
-  read -rp "请输入主模型名称 [默认 gemini-3.8-flash-high]: " input_model
-  input_model="${input_model:-gemini-3.8-flash-high}"
+  read -rp "请输入主模型名称 [默认 deepseek-v4.1-flash]: " input_model
+  input_model="${input_model:-deepseek-v4.1-flash}"
 
   read -rp "请输入 API Key [必填或直接回车稍后修改]: " input_key
   input_key="${input_key:-replace_with_your_llm_api_key}"

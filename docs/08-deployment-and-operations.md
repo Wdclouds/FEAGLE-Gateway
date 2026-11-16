@@ -25,7 +25,6 @@
 /etc/systemd/system/
 ├── pi-wx-gateway.service       # 四层漏斗主网关 (Node.js, 内存硬限 320M)
 ├── hermes-wxbridge.service     # 微信协议桥接与控制台 (:6190, :6191, :6192)
-├── antigravity-tools.service   # Google Gemini 多模态与生图代理 (:8045)
 └── mnemosyne.service           # 语义记忆与人际图谱中枢 (:18010)
 ```
 
@@ -33,7 +32,7 @@
 ```ini
 [Unit]
 Description=FEAGLE Pi WeChat Gateway Service
-After=network.target hermes-wxbridge.service antigravity-tools.service
+After=network.target hermes-wxbridge.service
 Wants=hermes-wxbridge.service
 
 [Service]
@@ -91,10 +90,14 @@ WantedBy=multi-user.target
 | `GATEWAY_PORT` | `6185` | 是 | 四层漏斗核心网关内部 REST/Inbound 监听端口。 |
 | `GATEWAY_OUTBOUND_PORT` | `6192` | 是 | Bridge 接收网关待发批次的 HTTP 队列监听端口。 |
 | `BRIDGE_OUT_URL` | `http://127.0.0.1:6192/gw/outbound` | 是 | 网关抛送出站消息批次的目标 URL。 |
-| `ANTIGRAVITY_BASE_URL` | `http://127.0.0.1:8045/v1` | 是 | Gemini 账号池代理服务根地址。 |
-| `ANTIGRAVITY_KEY` | `sk-853a7382b...` | 是 | 账号池访问令牌。 |
-| `ANTIGRAVITY_MODEL` | `gemini-3.8-flash` | 是 | L1 意图路由与日常直答首选模型。 |
-| `ANTIGRAVITY_TIMEOUT_MS` | `15000` | 否 | 上游模型请求超时时间（毫秒）。 |
+| `LLM_API_BASE` | `https://code.mrday.one/v1` | 是 | Mr. Day One API 端点（OpenAI 兼容）。 |
+| `LLM_API_KEY` | `sk-...` | 是 | Mr. Day One API Key，只从环境变量读。 |
+| `LLM_MODEL` | `deepseek-v4.1-flash` | 是 | L1 日常问答与直答模型。 |
+| `LLM_ROUTE_MODEL` | `deepseek-v4.1-flash` | 是 | 路由专用模型（关键路径，要快）。 |
+| `LLM_IMAGE_MODEL` | `gpt-image-2.6-sunburst` | 是 | 出图模型（聊天模型不能出图）。 |
+| `LLM_TEMPERATURE` | `0.6` | 否 | 日常问答温度。 |
+| `LLM_TIMEOUT_MS` | `90000` | 否 | 上游模型请求超时时间（毫秒）。 |
+| `LLM_ROUTE_TIMEOUT_MS` | `12000` | 否 | 路由超时；超时后走本地兼底判定。 |
 | `MNEMOSYNE_BASE_URL` | `http://127.0.0.1:18010` | 是 | 记忆中枢 REST 端点。 |
 | `BOT_USER_RATE_LIMIT` | `3` | 是 | 防风控：单用户在限流窗口内允许的最大消息数。 |
 | `BOT_USER_RATE_WINDOW_MS` | `30000` | 是 | 防风控：单用户限流计算窗口（30秒）。 |
@@ -192,7 +195,7 @@ systemctl reload hermes-wxbridge.service
   2. **检查是否命中 L0 模式拦截**：查看该群是否被设置为 `/mode mute`（静默模式）或 `/mode sentry`（哨兵模式）；
   3. **检查提问是否包含 `@机器人`**：群聊非硬指令提问必须提及机器人昵称；
   4. **检查是否触发额度保护 (R)**：若用户提问篇幅过长，网关会在日志中打印 `[L1:QuotaGuard] refused`；
-  5. **检查 Antigravity 代理状态**：执行 `curl http://127.0.0.1:8045/health` 检查 Gemini 上游通道是否存活。
+  5. **检查上游模型端点**：`curl -H "Authorization: Bearer $LLM_API_KEY" $LLM_API_BASE/models`，确认端点可达且密钥有效（旧本地反代 `:8045` 已下线）。
 
 ### 故障 3：大模型生图成功保存但微信未发出图片
 * **排查步骤**：

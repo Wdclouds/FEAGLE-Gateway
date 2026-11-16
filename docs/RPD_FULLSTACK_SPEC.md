@@ -72,14 +72,14 @@ FEAGLE WxBot 确立了五大核心架构哲学：
 │ ├─ 端口监听: 127.0.0.1:6185 (REST & Inbound)           │
 │ ├─ 四层漏斗调度 (Pipeline):                             │
 │ │   ├─ L0: commands.ts (硬指令), sanitizer.ts (防投毒)  │
-│ │   ├─ L1: llm.ts (Gemini 3.8 Flash 路由/直答/衰减环)   │
+│ │   ├─ L1: llm.ts (deepseek-v4.1-flash 路由/直答/衰减环)   │
 │ │   ├─ L2: pi-manager.ts (Pi 子进程工程任务, 闲置3min回收)│
 │ │   └─ L3: dialog.ts (微信原生引用回复), sanitizer.ts   │
 │ ├─ 工具注册中心 (tools.ts):                             │
 │ │   ├─ web_search (Bing 实时检索)                      │
 │ │   ├─ group_remind (定时提醒调度 jobs)                │
 │ │   ├─ palace_memo (Mnemosyne 记忆存取)                │
-│ │   ├─ generate_image (Gemini Imagen 生图与直发)       │
+│ │   ├─ generate_image (AI 生图 生图与直发)       │
 │ │   └─ read_wechat_article (公众号/卡片文章免登解析)  │
 │ ├─ 控制面 (control.ts): 沙箱、人设、Cron、审批、成员画像 │
 │ └─ 存储底座:                                           │
@@ -89,12 +89,12 @@ FEAGLE WxBot 确立了五大核心架构哲学：
              │                             │
              ▼                             ▼
 ┌────────────────────────────┐ ┌─────────────────────────┐
-│ Antigravity Tools (:8045)  │ │ Mnemosyne (:18010)      │
-│ (antigravity-tools.service)│ │ (mnemosyne.service)     │
+│ Mr. Day One API  │ │ Mnemosyne (:18010)      │
+│ (LLM_API_BASE 远程端点)    │ │ (mnemosyne.service)     │
 │ ├─ /v1/chat/completions    │ │ 语义向量数据库与长期记忆 │
-│ │  (gemini-3.8-flash)      │ │ 社交图谱提取沉淀         │
+│ │  (deepseek-v4.1-flash)      │ │ 社交图谱提取沉淀         │
 │ └─ /v1/images/generations  │ └─────────────────────────┘
-│    (gemini-3.1-flash-image)│
+│    (gpt-image-2.6-sunburst)│
 └────────────────────────────┘
 ```
 
@@ -106,7 +106,7 @@ FEAGLE WxBot 确立了五大核心架构哲学：
 | **Android Gateway** | `0.0.0.0:6191` | WebSocket (WSS) | 凭证/Token认证 | 平板端微信 Hook Agent 物理长连接接入、报文双向传输 |
 | **Bridge Outbound** | `127.0.0.1:6192` | HTTP REST | 本机回环 | 接收来自 Gateway 的出站批次，串行调度平板发信与发图 |
 | **Gateway REST/API**| `127.0.0.1:6185` | HTTP REST | 本机/Bridge代理 | 网关入站接收、沙箱配置 REST API、工具与成员画像管理 |
-| **Antigravity Proxy**| `127.0.0.1:8045` | HTTP OpenAI 规范| 本地内部鉴权 | Google Gemini 账号池代理，提供 3.8 Flash 对话与 Imagen 生图 |
+| **Mr. Day One API**| `127.0.0.1:8045` | HTTP OpenAI 规范| 本地内部鉴权 | Mr. Day One API，提供 3.8 Flash 对话与 Imagen 生图 |
 | **Mnemosyne 记忆**  | `127.0.0.1:18010`| HTTP REST | 本机回环 | 长期记忆语义检索、工作快照存储与人际图谱维护 |
 
 ---
@@ -131,7 +131,7 @@ FEAGLE WxBot 确立了五大核心架构哲学：
                          │ (未命中 L0，放行进入 L1)
                          ▼
 ┌────────────────────────────────────────────────────────┐
-│ L1 智能语义路由与直答层 (Gemini 3.8 Flash, 响应 < 1.5s)│
+│ L1 智能语义路由与直答层 (deepseek-v4.1-flash, 响应 < 1.5s)│
 │ • 意图决策单字母分流 (W/S/X/T/C/R)                     │
 │ • 额度熔断保护 (R: 判定超长任务拒绝执行并给出分步建议) │
 │ • 闲聊与即时问答 (T: 结合 15分钟衰减环与背景感知直答)  │
@@ -187,7 +187,7 @@ FEAGLE WxBot 确立了五大核心架构哲学：
 * **W (Wait)**：用户话未说完（断句/并列连词/排版未完），滑动窗口自动延长 2.5 秒等待下一段。
 * **S (Steer)**：任务正在运行中时收到追加补充指令，向现有 Pi 会话直接追加引导而不打断进程。
 * **X (Cancel)**：检测到用户表达“停止/别做了/算了我自己来”，立即中断底层 Pi 并释放租约。
-* **T (Talk)**：纯日常问答、闲聊或情绪表达，不唤醒 Pi，由 Gemini 3.8 Flash 结合人设秒回。
+* **T (Talk)**：纯日常问答、闲聊或情绪表达，不唤醒 Pi，由 deepseek-v4.1-flash 结合人设秒回。
 * **C (Coding/Task)**：确凿的研发工程、脚本执行、多步排错任务，转入 L2 处理。
 * **R (Refuse 额度保护)**：当大模型检测到提问规模庞大（如“帮我写一套完整电商系统含前端后端测试部署”），L1 自动拦截并给出礼貌拒绝与分步骤拆解建议，**坚决不调用 L2，避免瞬间烧尽 API 额度**。
 
@@ -247,7 +247,7 @@ FEAGLE WxBot 确立了五大核心架构哲学：
   - `prompt` (string, 必须): 画面构图、主体、色彩、光影细节描述。
   - `aspect_ratio` (string, 可选): `1:1`, `3:4`, `4:3`, `9:16`, `16:9`。
 * **执行流程与微信通道绑定**：
-  1. 调用 `http://127.0.0.1:8045/v1/images/generations`，指定模型 `gemini-3.1-flash-image`，接收 `b64_json`。
+  1. 调用 `http://127.0.0.1:8045/v1/images/generations`，指定模型 `gpt-image-2.6-sunburst`，接收 `b64_json`。
   2. 落地存储为文件：`data/generated-images/gen-${Date.now()}-${rand}.png`（典型大小 1.3MB，避免在 Node 进程间传递巨型 Base64 字符串引爆内存）。
   3. 构建微信出站批次（`batch = { c: ctx.chatId, seq: [{ img: localFilePath, d: 300 }] }`），直接向 `config.bridgeOutUrl`（6192 端口）发起异步下发。
   4. 向 LLM 上下文返回成功确认，模型在下一步回复中输出友好的自然语言收尾，实现“图片+说明”连贯下发。
@@ -415,7 +415,6 @@ export interface MemberProfile {
 /etc/systemd/system/
 ├── pi-wx-gateway.service       # 四层漏斗主网关 (Node.js, 内存硬限 320M)
 ├── hermes-wxbridge.service     # 微信协议桥接与控制台 (:6190, :6191, :6192)
-├── antigravity-tools.service   # Google Gemini 账号池代理 (:8045)
 └── mnemosyne.service           # 语义记忆持久化检索服务 (:18010)
 ```
 
@@ -435,11 +434,11 @@ GATEWAY_PORT=6185
 GATEWAY_OUTBOUND_PORT=6192
 BRIDGE_OUT_URL=http://127.0.0.1:6192/gw/outbound
 
-# 大模型后端凭据 (Antigravity Proxy)
-ANTIGRAVITY_BASE_URL=http://127.0.0.1:8045/v1
-ANTIGRAVITY_KEY=sk-853a7382bdef4d50acd0a01c62906b87
-ANTIGRAVITY_MODEL=gemini-3.8-flash
-ANTIGRAVITY_TIMEOUT_MS=15000
+# 大模型后端凭据 (Mr. Day One API，OpenAI 兼容)
+LLM_API_BASE=https://code.mrday.one/v1
+LLM_API_KEY=replace_with_your_llm_api_key
+LLM_MODEL=deepseek-v4.1-flash
+LLM_TIMEOUT_MS=90000
 
 # 记忆中枢 (Mnemosyne)
 MNEMOSYNE_BASE_URL=http://127.0.0.1:18010

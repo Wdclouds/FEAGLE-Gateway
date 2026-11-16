@@ -46,15 +46,15 @@ export interface ChatResponse {
   message?: any;
 }
 
-/** Antigravity 反代调用（Gemini 3.8 Flash，支持 OpenAI 标准 tools/tool_calls）。 */
-export async function antigravityChatResponse(
+/** 调 L1 直答端点（OpenAI 兼容）。密钥或地址缺失时返回 null，由调用方降级。 */
+export async function chatCompletion(
   messages: Array<any>,
   opts: { maxTokens: number; temperature: number; timeoutMs?: number; tools?: any[]; model?: string }
 ): Promise<ChatResponse | null> {
-  if (!config.antigravity.apiKey) return null;
-  const timeout = opts.timeoutMs ?? config.antigravity.timeoutMs;
+  if (!config.llm.apiKey) return null;
+  const timeout = opts.timeoutMs ?? config.llm.timeoutMs;
   const payload: Record<string, any> = {
-    model: opts.model ?? config.antigravity.model,
+    model: opts.model ?? config.llm.model,
     messages,
     temperature: opts.temperature,
     max_tokens: opts.maxTokens,
@@ -67,8 +67,8 @@ export async function antigravityChatResponse(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await postJson(
-        `${config.antigravity.baseUrl}/chat/completions`,
-        config.antigravity.apiKey,
+        `${config.llm.baseUrl}/chat/completions`,
+        config.llm.apiKey,
         payload,
         timeout
       );
@@ -80,8 +80,8 @@ export async function antigravityChatResponse(
         message: msg,
       };
     } catch (err: any) {
-      console.error(`[antigravityChatResponse attempt ${attempt + 1} error] ${err?.message || String(err)}`);
-      // 若是网络波动或反代临时抖动（非主动超时中止），静默等待 1 秒后自动重试一次
+      console.error(`[chatCompletion attempt ${attempt + 1} error] ${err?.message || String(err)}`);
+      // 若是网络波动或上游临时抖动（非主动超时中止），静默等待 1 秒后自动重试一次
       if (attempt === 0 && !err?.message?.includes('aborted')) {
         await new Promise((r) => setTimeout(r, 1000));
         continue;
@@ -92,12 +92,12 @@ export async function antigravityChatResponse(
   return null;
 }
 
-/** Antigravity 反代单轮调用（Gemini 3.8 Flash）。失败返回 null，由调用方降级。 */
-async function antigravityChat(
+/** 只要文本的单轮调用。失败返回 null，由调用方降级。 */
+async function chatOnce(
   messages: Array<{ role: string; content: string | unknown[] }>,
   opts: { maxTokens: number; temperature: number; timeoutMs?: number; model?: string }
 ): Promise<string | null> {
-  const resp = await antigravityChatResponse(messages, opts);
+  const resp = await chatCompletion(messages, opts);
   return resp?.content ?? null;
 }
 
@@ -134,14 +134,14 @@ function fallbackDecision(isBusy: boolean): CompactRouteDecision {
 }
 
 /**
- * 视觉描述器：使用 Gemini 3.8 Flash 原生多模态视觉读取图片转成文字描述。
+ * 视觉描述器：用 L1 模型的原生多模态能力读图，转成文字描述。
  * 专属提示词：聚焦于报错提取、界面关键信息与聊天对话转述，给后续路由层提供文本线索。
  */
 export async function describeImage(imgPath: string): Promise<string | null> {
   try {
     const buf = await readFile(imgPath);
     const dataUrl = `data:image/jpeg;base64,${buf.toString('base64')}`;
-    const res = await antigravityChat(
+    const res = await chatOnce(
       [
         {
           role: 'user',
@@ -161,15 +161,15 @@ export async function describeImage(imgPath: string): Promise<string | null> {
 }
 
 /**
- * 第 1 层入口路由。主力 Gemini 3.8 Flash（Antigravity 反代，免费，实测 1.5~2.2s），
- * 失败走本地兜底。
+ * 第 1 层入口路由：用 routeModel 判定意图（deepseek-v4.1-flash 实测 4~5s），
+ * 超时或报错就走 fallbackDecision 的本地兜底判定。
  * 图片消息先经视觉转述成文字再路由。
  */
 export async function routeMessage(
   compactHistory: string,
   isBusy: boolean,
   imgUrl?: string
-): Promise<{ decision: CompactRouteDecision; provider: 'gemini' | 'fallback'; imgDesc?: string | null }> {
+): Promise<{ decision: CompactRouteDecision; provider: 'direct' | 'fallback'; imgDesc?: string | null }> {
   let text = compactHistory;
   let imgDesc: string | null | undefined;
   if (imgUrl) {
@@ -180,17 +180,17 @@ export async function routeMessage(
     { role: 'system', content: ROUTE_SYS(isBusy) },
     { role: 'user', content: text },
   ];
-  const gem = await antigravityChat(msgs, {
+  const gem = await chatOnce(msgs, {
     maxTokens: 250,
     temperature: 0.1,
-    timeoutMs: Math.min(10000, config.antigravity.timeoutMs),
-    model: config.antigravity.routeModel,
+    timeoutMs: Math.min(config.llm.routeTimeoutMs, config.llm.timeoutMs),
+    model: config.llm.routeModel,
   });
-  if (gem) return { decision: parseDecision(gem, isBusy), provider: 'gemini', imgDesc };
+  if (gem) return { decision: parseDecision(gem, isBusy), provider: 'direct', imgDesc };
   return { decision: fallbackDecision(isBusy), provider: 'fallback', imgDesc };
 }
 
-/** l1_only 人设直答：跳过路由器与 Pi，Gemini 3.8 Flash 带人设系统提示直接回复。支持图片直传原生视觉、多轮历史轮次与标准工具执行。 */
+/** l1_only 人设直答：跳过路由器与 Pi，用 L1 模型带人设系统提示直接回复。支持图片直传原生视觉、多轮历史轮次与标准工具执行。 */
 export async function directChat(
   compactHistory: string,
   personaSysPrompt: string,
@@ -242,9 +242,9 @@ export async function directChat(
 
   while (currentRound < MAX_ROUNDS) {
     currentRound++;
-    const resp = await antigravityChatResponse(msgs, {
+    const resp = await chatCompletion(msgs, {
       maxTokens: 1500,
-      temperature: 0.7,
+      temperature: config.llm.temperature,
       timeoutMs: 60_000,
       tools: currentRound < MAX_ROUNDS ? tools : undefined,
     });
@@ -311,7 +311,7 @@ export async function analyzeSentryTranscript(transcript: string, chatTitle: str
     { role: 'system', content: sys },
     { role: 'user', content: transcript.slice(0, 5000) },
   ];
-  const raw = await antigravityChat(msgs, { maxTokens: 800, temperature: 0.1 });
+  const raw = await chatOnce(msgs, { maxTokens: 800, temperature: 0.1 });
 
   if (!raw) return { urgent: false, relations: [] };
 
@@ -340,7 +340,7 @@ export async function distillMemories(
     { role: 'system', content: sys },
     { role: 'user', content: transcript.slice(0, 6000) },
   ];
-  const raw = (await antigravityChat(msgs, { maxTokens: 600, temperature: 0.2 })) ?? '[]';
+  const raw = (await chatOnce(msgs, { maxTokens: 600, temperature: 0.2 })) ?? '[]';
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) return [];
   try {

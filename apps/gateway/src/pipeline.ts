@@ -529,7 +529,7 @@ async function onWindowFlush(pkts: WxInboundPkt[]): Promise<void> {
   const historyTurns = dialogManager.getTurns(chat);
   const groupBg = isGrp ? dialogManager.getGroupBackground(chat) : '';
 
-  // 人设 l1_only：强制不唤醒 Pi，Gemini 3.8 Flash 带人设直答（支持图片直传原生视觉与多轮历史）
+  // 人设 l1_only：强制不唤醒 Pi，用 L1 模型带人设直答（支持图片直传原生视觉与多轮历史）
   if (persona.engine_mode === 'l1_only') {
     const t = Date.now();
     const memBlock = memories.length

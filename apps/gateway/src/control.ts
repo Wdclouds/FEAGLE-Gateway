@@ -168,7 +168,7 @@ function seedDemoJob(): void {
   const runAt = nextRun('0 9 * * *', new Date()) ?? Date.now() + 86400_000;
   db.prepare('INSERT INTO jobs(id,chat_id,cron_expr,run_at,prompt_payload,persona_id,enabled) VALUES(?,?,?,?,?,?,1)')
     .run('daily-9am-report', admin, '0 9 * * *', runAt,
-      '简要检查服务器内存/磁盘/四个服务(gateway/bridge/mnemosyne/antigravity)运行状态，并检索昨日记忆归档情况，输出一段简短晨报。', 'nox');
+      '简要检查服务器内存/磁盘/三个服务(gateway/bridge/mnemosyne)运行状态，并检索昨日记忆归档情况，输出一段简短晨报。', 'nox');
 }
 
 // ============ 人设 ============

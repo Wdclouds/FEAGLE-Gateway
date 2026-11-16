@@ -45,21 +45,21 @@ FEAGLE WxBot 架构由移动物理端、协议中继桥（Bridge）、核心网�
 │ ├─ 端口监听: 127.0.0.1:6185 (REST & Inbound Pipeline)                          │
 │ ├─ 四层漏斗引擎:                                                               │
 │ │   ├─ L0: commands.ts (硬指令集), sanitizer.ts (防提示词投毒/越狱)            │
-│ │   ├─ L1: llm.ts (Gemini 3.8 意图分流/直答/额度熔断/15分钟衰减环)            │
+│ │   ├─ L1: llm.ts (deepseek-v4.1-flash 意图分流/直答/额度熔断/15分钟衰减环)            │
 │ │   ├─ L2: pi-manager.ts (Pi 子进程工程任务, 3分钟闲置自动回收)                │
 │ │   └─ L3: dialog.ts (微信原生引用回复气泡封装), sanitizer.ts (脱敏与分片)    │
 │ ├─ 控制面 (control.ts): 沙箱、人设、Cron 调度、高危审批挂起、成员画像          │
-│ └─ 工具注册表 (tools.ts): 网页搜索、定时提醒、记忆宫殿、Gemini Imagen 生图直发 │
+│ └─ 工具注册表 (tools.ts): 网页搜索、定时提醒、记忆宫殿、AI 生图 生图直发 │
 └───────────────────────┬───────────────────────────────┬────────────────────────┘
                         │                               │
                         ▼                               ▼
 ┌────────────────────────────────────────┐ ┌────────────────────────────────────┐
-│ 上游模型代理 (Antigravity Tools)       │ │ 长期语义记忆 (Mnemosyne 中枢)      │
-│ 监听: 127.0.0.1:8045                   │ │ 监听: 127.0.0.1:18010              │
+│ 上游模型 (Mr. Day One API)             │ │ 长期语义记忆 (Mnemosyne 中枢)      │
+│ 监听: https://code.mrday.one/v1        │ │ 监听: 127.0.0.1:18010              │
 │ ├─ POST /v1/chat/completions           │ │ ├─ 语义向量存储与检索              │
-│ │  (Google Gemini 3.8 Flash 对话模型)  │ │ ├─ 自动化社交图谱构建              │
+│ │  (deepseek-v4.1-flash 日常问答)      │ │ ├─ 自动化社交图谱构建              │
 │ └─ POST /v1/images/generations         │ │ └─ Git 工作区环境快照存取          │
-│    (Google Gemini 3.1 Flash Image 生图)│ └────────────────────────────────────┘
+│    (gpt-image-2.6-sunburst 生图)       │ └────────────────────────────────────┘
 └────────────────────────────────────────┘
 ```
 
@@ -75,7 +75,7 @@ FEAGLE WxBot 架构由移动物理端、协议中继桥（Bridge）、核心网�
 | **Android Hook (Bridge)** | `0.0.0.0:6191` | WebSocket (WSS) | 凭证校验访问 | 物理平板端微信 Hook 报文长连接传输；二进制分片流与心跳保活 |
 | **Bridge 出站服务 (GatewayClient)** | `127.0.0.1:6192` | HTTP REST | 本机回环 (内网) | 接收网关待发消息批次，同会话串行拟人化分片推向微信客户端 |
 | **网关中枢 (Gateway REST)** | `127.0.0.1:6185` | HTTP REST | 本机回环 (内网) | 接收消息入站请求；提供社群沙箱、工具库、成员画像的管理接口 |
-| **大模型账号池反代 (Antigravity)** | `127.0.0.1:8045` | HTTP REST (OpenAI 兼容) | 本机回环 (内网) | 代理 Google Gemini 多模态与 Imagen 生图接口，实现额度管理与鉴权 |
+| **上游模型 (Mr. Day One API)** | `https://code.mrday.one/v1` | HTTP REST (OpenAI 兼容) | 出网 HTTPS | 提供 L1 问答与智能体模型、出图接口；密钥用 `LLM_API_KEY` |
 | **记忆中枢 (Mnemosyne)** | `127.0.0.1:18010` | HTTP REST | 本机回环 (内网) | 提供长期记忆语义向量检索、社群人际图谱关系与任务快照存储 |
 
 ---

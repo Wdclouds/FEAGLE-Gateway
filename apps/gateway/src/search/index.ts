@@ -20,8 +20,8 @@ export const globalFactVerifier = new FactVerifier(
   globalSearchOrchestrator,
   async (messages, opts) => {
     try {
-      const { antigravityChatResponse } = await import('../llm.js');
-      const res = await antigravityChatResponse(messages, opts);
+      const { chatCompletion } = await import('../llm.js');
+      const res = await chatCompletion(messages, opts);
       return res?.content ?? null;
     } catch {
       return null;

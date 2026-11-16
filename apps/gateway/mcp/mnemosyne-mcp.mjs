@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Mnemosyne 记忆宫殿 MCP 服务器（Pi 专用，无依赖 stdio JSON-RPC 2.0）
- * 让 Pi/Gemini 在任务中主动进宫殿翻房间：检索、写入、提炼、钉住。
+ * 让 Pi 在任务中主动进宫殿翻房间：检索、写入、提炼、钉住。
  * 用法：pi mcp add mnemosyne -- node /opt/FEAGLEwxbot/apps/gateway/mcp/mnemosyne-mcp.mjs
  */
 import { createInterface } from 'node:readline';

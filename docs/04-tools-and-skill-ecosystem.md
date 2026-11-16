@@ -115,7 +115,7 @@
   [L1 大模型触发 Function Call: generate_image]
                     │
                     ▼
-  [请求 Antigravity Imagen API: POST :8045/v1/images/generations]
+  [请求出图接口: POST /v1/images/generations]
                     │ (接收 1.3MB base64 图像数据)
                     ▼
   [本地磁盘持久化落盘: data/generated-images/gen-<ts>-<rand>.png]
